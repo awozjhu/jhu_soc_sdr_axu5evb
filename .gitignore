@@ -1,0 +1,21 @@
+# Vivado junk
+*.jou
+*.log
+*.str
+*.wdb
+*.html
+*.xml
+*.zip
+*.dcp
+*.rpx
+*.xpr
+*.cache/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+.xil/
+
+# PetaLinux & build
+petalinux/build/
+build/
