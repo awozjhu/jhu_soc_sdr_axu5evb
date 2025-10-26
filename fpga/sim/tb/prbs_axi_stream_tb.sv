@@ -165,8 +165,24 @@ module tb_prbs_axi_stream;
   logic        m_axis_tready;
   logic        m_axis_tlast;
 
+//-----------------------------
+// Byte Scrambler I/O (for instantiation test)
+// -----------------------------
+logic        in_ready;          // PRBS backpressure (to tready)
+
+logic [7:0]  out_data;          // scrambler → descrambler
+logic        out_valid;
+logic        out_ready;
+
+logic [7:0]  dsc_data;          // descrambler → sink/scoreboard
+logic        dsc_valid;
+logic        dsc_ready;
+
+assign dsc_ready = 1'b1;        // always-accept sink for now
+
+
   // -----------------------------
-  // Instantiate DUT
+  // Instantiate DUT PRBS (AXI-Stream source)
   // -----------------------------
   prbs_axi_stream dut (
     .clk(clk),
@@ -192,9 +208,82 @@ module tb_prbs_axi_stream;
 
     .m_axis_tdata (m_axis_tdata),
     .m_axis_tvalid(m_axis_tvalid),
-    .m_axis_tready(m_axis_tready),
+    // .m_axis_tready(m_axis_tready),
+    .m_axis_tready(in_ready), // connect to byte_scrambler input ready
     .m_axis_tlast (m_axis_tlast)
   );
+
+// Optional: propagate tlast straight through (no latency inside scrambler/descrambler)
+logic final_tlast;
+assign final_tlast = m_axis_tlast;
+
+// -------------------------
+// Scrambler
+// -------------------------
+byte_scrambler #(
+  .LFSR_W  (7),
+  .TAP_MASK(7'b1001000)
+) u_scrambler (
+  .clk         (clk),
+  .rst_n       (rst_n),
+
+  // simple stream in (from PRBS AXIS)
+  .in_data     (m_axis_tdata),
+  .in_valid    (m_axis_tvalid),
+  .in_ready    (in_ready),        // drives PRBS tready
+
+  // simple stream out (to descrambler)
+  .out_data    (out_data),
+  .out_valid   (out_valid),
+  .out_ready   (out_ready),       // will be driven by descrambler.in_ready
+
+  // AXI4-Lite-mapped controls (tied for bring-up)
+  .cfg_enable  (1'b1),
+  .cfg_bypass  (1'b0),
+  .cfg_seed_wr (1'b0),
+  .cfg_seed    ('0),
+
+  .running_pulse()
+);
+
+// -------------------------
+// Descrambler (identical core)
+// -------------------------
+byte_scrambler #(
+  .LFSR_W  (7),
+  .TAP_MASK(7'b1001000)
+) u_descrambler (
+  .clk         (clk),
+  .rst_n       (rst_n),
+
+  // simple stream in (from scrambler)
+  .in_data     (out_data),
+  .in_valid    (out_valid),
+  .in_ready    (out_ready),       // backpressure to scrambler
+
+  // simple stream out (to sink/scoreboard)
+  .out_data    (dsc_data),
+  .out_valid   (dsc_valid),
+  .out_ready   (dsc_ready),
+
+  // AXI4-Lite-mapped controls (same settings & seed behavior)
+  .cfg_enable  (1'b1),
+  .cfg_bypass  (1'b0),
+  .cfg_seed_wr (1'b0),
+  .cfg_seed    ('0),
+
+  .running_pulse()
+);
+
+// -------------------------
+// (Optional) quick check in TB:
+// Compare descrambled data to PRBS source on each accepted beat.
+// Enable once your TB has a clock/reset in place.
+// -------------------------
+always_ff @(posedge clk) if (rst_n && dsc_valid && dsc_ready)
+  assert(dsc_data == m_axis_tdata)
+    else $fatal(1, "Descrambler mismatch at %t", $time);
+
 
   // -----------------------------
   // AXI-Lite helpers

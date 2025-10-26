@@ -59,7 +59,7 @@ module sdr_chain #(
   output logic                       s_axil_rvalid,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RREADY"  *)
   input  wire                        s_axil_rready,
-  (* X_INTERFACE_PARAMETER = "XIL_INTERFACENAME S_AXI, DATA_WIDTH=32, PROTOCOL=AXI4LITE, ADDR_WIDTH=12, FREQ_HZ=100000000" *) output wire _saxi_params_unused,
+  // (* X_INTERFACE_PARAMETER = "XIL_INTERFACENAME S_AXI, DATA_WIDTH=32, PROTOCOL=AXI4LITE, ADDR_WIDTH=12, FREQ_HZ=100000000" *) output wire _saxi_params_unused,
 
   // AXIS Slave (RX from DMA/MM2S or other upstream)
   (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS_RX TDATA"  *)
@@ -95,8 +95,8 @@ module sdr_chain #(
   (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 M_AXIS_TX TREADY" *)
   input  wire                        m_axis_tx_tready,
   (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 M_AXIS_TX TLAST"  *)
-  output wire                        m_axis_tx_tlast,
-  (* X_INTERFACE_PARAMETER = "XIL_INTERFACENAME M_AXIS_TX, TDATA_NUM_BYTES=8, HAS_TKEEP=1, HAS_TLAST=1" *) output wire _maxis_params_unused
+  output wire                        m_axis_tx_tlast
+  // (* X_INTERFACE_PARAMETER = "XIL_INTERFACENAME M_AXIS_TX, TDATA_NUM_BYTES=8, HAS_TKEEP=1, HAS_TLAST=1" *) output wire _maxis_params_unused
 );
 
   // -----------------------------
