@@ -14,73 +14,75 @@
 // - Internal stream is AXIS-like: valid/ready/last only.
 
 /*------------------------------------------------------------------------------
-  Symbol Mapper (mapper.sv)
-  ------------------------------------------------------------------------------
-  Purpose
-    Convert a byte-wide bitstream (AXIS-like, LSB-first per byte) into
-    complex baseband symbols in Q1.15 fixed-point. Supports BPSK and
-    Gray-coded QPSK. Optional BYPASS forces BPSK (I-only).
+-  Symbol Mapper (mapper.sv)
+-  ------------------------------------------------------------------------------
+-  Purpose
+-    Convert a byte-wide bitstream (AXIS-like, LSB-first per byte) into
+-    complex baseband symbols in Q1.15 fixed-point. Supports BPSK and
+-    Gray-coded QPSK. Optional BYPASS forces BPSK (I-only).
+-
+-  Interfaces
+-    clk_bb, rst_n                       : datapath clock/reset
+-    in_*  (valid,ready,data[7:0],last)  : input bits, 8 per beat, LSB-first
+-    out_* (valid,ready,data[31:0],last) : output symbols; out_data = {I[15:0],Q[15:0]}
+-    amc_mode_i[2:0], amc_mode_valid_i   : optional external mode (only bit[0] used)
+-    AXI4-Lite slave                      : CTRL/STATUS registers (same clock domain)
+-
+-  Register Map (word-aligned)
+-    0x00 CTRL
+-         [0]  ENABLE          : 1=enable datapath
+-         [1]  BYPASS          : 1=force BPSK (I-only) regardless of MODE
+-         [2]  SW_RESET        : one-shot; clears internal buffers/holds
+-         [6:4]MODE            : 0=BPSK, 1=QPSK (others reserved)
+-         [8]  AMC_OVERRIDE    : 1=use local MODE; 0=use amc_mode_i when valid
+-    0x04 STATUS (R/W1C bits)
+-         [0]  RUNNING         : set after first symbol handshake on out_*
+-         [2]  OVERFLOW        : set if upstream asserted in_valid when !in_ready
+-
+-  Operation
+-    • Byte intake / bit buffer:
+-        - Accepts a new input byte only when the internal bit buffer is empty and
+-          the output hold register is free. This keeps frame TLAST aligned to byte
+-          boundaries.
+-        - Bits are consumed LSB-first from the buffer.
+-
+-    • Symbol formation:
+-        - K = 1 (BPSK) or 2 (QPSK) bits per symbol.
+-        - For BPSK: use b0 = current LSB; map I = ±AMP_BPSK, Q = 0.
+-        - For QPSK (Gray):
+-              Bit pair per symbol is [b0,b1] taken LSB-first from the buffer.
+-              Q sign ← b0 (0 ⇒ +, 1 ⇒ −)
+-              I sign ← b1 (0 ⇒ +, 1 ⇒ −)
+-              Mapping: 00:(+,+), 01:(−,+), 11:(−,−), 10:(+,-)
+-          Output amplitudes: AMP_BPSK=±32767, AMP_QPSK=±23170 (≈±1/√2 in Q1.15).
+-
+-    • TLAST propagation:
+-        - in_last is latched with the current byte. out_last is asserted on the
+-          symbol that consumes the final remaining bits of that byte (i.e., when
+-          the buffer becomes empty after that symbol). This marks the end of the
+-          frame at a symbol boundary.
+-
+-    • Handshakes:
+-        - in_ready  = ENABLE & (bit buffer empty) & (output hold not valid).
+-        - out_valid pulses when a symbol is ready; data transfers on out_valid &
+-          out_ready.
+-        - OVERFLOW sets if in_valid asserted when in_ready=0.
+-
+-    • Mode selection:
+-        - If AMC_OVERRIDE=1, use CTRL.MODE; else, when amc_mode_valid_i=1, use
+-          amc_mode_i[0] (0=BPSK, 1=QPSK).
+-
+-    • Reset / status:
+-        - SW_RESET (CTRL[2]) is a one-shot that clears internal state.
+-        - RUNNING sets after the first successful output transfer.
+-        - STATUS bits are R/W1C.
+-
+-  Notes
+-    - Q1.15 outputs are packed as {I[15:0], Q[15:0]} on out_data.
+-    - Design assumes AXI-Lite and datapath share clk_bb; add CDC if not.
+-------------------------------------------------------------------------------*/
 
-  Interfaces
-    clk_bb, rst_n                       : datapath clock/reset
-    in_*  (valid,ready,data[7:0],last)  : input bits, 8 per beat, LSB-first
-    out_* (valid,ready,data[31:0],last) : output symbols; out_data = {I[15:0],Q[15:0]}
-    amc_mode_i[2:0], amc_mode_valid_i   : optional external mode (only bit[0] used)
-    AXI4-Lite slave                      : CTRL/STATUS registers (same clock domain)
 
-  Register Map (word-aligned)
-    0x00 CTRL
-         [0]  ENABLE          : 1=enable datapath
-         [1]  BYPASS          : 1=force BPSK (I-only) regardless of MODE
-         [2]  SW_RESET        : one-shot; clears internal buffers/holds
-         [6:4]MODE            : 0=BPSK, 1=QPSK (others reserved)
-         [8]  AMC_OVERRIDE    : 1=use local MODE; 0=use amc_mode_i when valid
-    0x04 STATUS (R/W1C bits)
-         [0]  RUNNING         : set after first symbol handshake on out_*
-         [2]  OVERFLOW        : set if upstream asserted in_valid when !in_ready
-
-  Operation
-    • Byte intake / bit buffer:
-        - Accepts a new input byte only when the internal bit buffer is empty and
-          the output hold register is free. This keeps frame TLAST aligned to byte
-          boundaries.
-        - Bits are consumed LSB-first from the buffer.
-
-    • Symbol formation:
-        - K = 1 (BPSK) or 2 (QPSK) bits per symbol.
-        - For BPSK: use b0 = current LSB; map I = ±AMP_BPSK, Q = 0.
-        - For QPSK (Gray):
-              Bit pair per symbol is [b0,b1] taken LSB-first from the buffer.
-              Q sign ← b0 (0 ⇒ +, 1 ⇒ −)
-              I sign ← b1 (0 ⇒ +, 1 ⇒ −)
-              Mapping: 00:(+,+), 01:(−,+), 11:(−,−), 10:(+,-)
-          Output amplitudes: AMP_BPSK=±32767, AMP_QPSK=±23170 (≈±1/√2 in Q1.15).
-
-    • TLAST propagation:
-        - in_last is latched with the current byte. out_last is asserted on the
-          symbol that consumes the final remaining bits of that byte (i.e., when
-          the buffer becomes empty after that symbol). This marks the end of the
-          frame at a symbol boundary.
-
-    • Handshakes:
-        - in_ready  = ENABLE & (bit buffer empty) & (output hold not valid).
-        - out_valid pulses when a symbol is ready; data transfers on out_valid &
-          out_ready.
-        - OVERFLOW sets if in_valid asserted when in_ready=0.
-
-    • Mode selection:
-        - If AMC_OVERRIDE=1, use CTRL.MODE; else, when amc_mode_valid_i=1, use
-          amc_mode_i[0] (0=BPSK, 1=QPSK).
-
-    • Reset / status:
-        - SW_RESET (CTRL[2]) is a one-shot that clears internal state.
-        - RUNNING sets after the first successful output transfer.
-        - STATUS bits are R/W1C.
-
-  Notes
-    - Q1.15 outputs are packed as {I[15:0], Q[15:0]} on out_data.
-    - Design assumes AXI-Lite and datapath share clk_bb; add CDC if not.
-------------------------------------------------------------------------------*/
 
 
 `timescale 1ns/1ps
@@ -341,13 +343,8 @@ module mapper #(
         b0 = bit_buf[0];
         b1 = need2 ? bit_buf[1] : 1'b0;
 
-        // FIX: swap b0/b1 only when K=2 (QPSK); keep BPSK using b0 as-is
-        map_bits_to_iq(
-          ctrl_bypass, eff_qpsk,
-          (need2 ? b1 : b0),   // effective b0'
-          (need2 ? b0 : 1'b0), // effective b1'
-          i_tmp, q_tmp
-        );
+        // $display("[MAPPER] using (b0,b1)=%0d,%0d  bits_avail=%0d  t=%0t", b0, b1, bits_avail, $time);
+        map_bits_to_iq(ctrl_bypass, eff_qpsk, b0, b1, i_tmp, q_tmp);
 
         hold_I         <= i_tmp;
         hold_Q         <= q_tmp;
