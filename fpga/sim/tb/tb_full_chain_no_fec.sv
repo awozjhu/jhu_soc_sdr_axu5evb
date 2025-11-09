@@ -67,9 +67,10 @@ module tb_full_chain_no_fec;
   );
 
   // ------------------------------------------------------------
-  // TX: Mapper → Diff Encoder
+  // TX: Mapper → Diff Encoder → Preamble Inserter
   // (Scrambler removed)
   // ------------------------------------------------------------
+
   // Mapper
   logic        map_in_valid, map_in_ready, map_in_last;
   logic [7:0]  map_in_data;
@@ -135,52 +136,45 @@ module tb_full_chain_no_fec;
     .s_axi_rdata (de_rdata),  .s_axi_rresp(de_rresp), .s_axi_rvalid(de_rvalid), .s_axi_rready(de_rready)
   );
 
-  // ------------------------------------------------------------
-  // Two-stage Preamble Correlators (pass-through path)
-  // (PreambleInserter/Packetizer/Depacketizer removed)
-  // ------------------------------------------------------------
-  // Stage 0
-  logic        pc0_tvalid, pc0_tready, pc0_tlast;
-  logic [31:0] pc0_tdata;
-  logic        frame_start0;
+  // Preamble Inserter (symbols)
+  logic        pi_tvalid, pi_tready, pi_tlast;
+  logic [31:0] pi_tdata;
 
-  PreambleCorrelator #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pcorr0 (
-    .clk(clk), .rst_n(rst_n),
+  PreambleInserter #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_preamble_ins (
+    .aclk(clk), .aresetn(rst_n),
     .s_axis_tvalid(de_out_valid), .s_axis_tready(de_out_ready),
     .s_axis_tdata(de_out_data),   .s_axis_tlast(de_out_last),
-    .m_axis_tvalid(pc0_tvalid),   .m_axis_tready(pc0_tready),
-    .m_axis_tdata(pc0_tdata),     .m_axis_tlast(pc0_tlast),
-    .frame_start(frame_start0)
+    .m_axis_tvalid(pi_tvalid), .m_axis_tready(pi_tready),
+    .m_axis_tdata(pi_tdata),   .m_axis_tlast(pi_tlast)
   );
 
-  // Stage 1
-  logic        pc1_tvalid, pc1_tready, pc1_tlast;
-  logic [31:0] pc1_tdata;
-  logic        frame_start1;
+  // ------------------------------------------------------------
+  // RX: Preamble Correlator → Diff Decoder → Slicer
+  // (NO packetizer/depacketizer; single correlator)
+  // ------------------------------------------------------------
+  logic        pc_tvalid, pc_tready, pc_tlast;
+  logic [31:0] pc_tdata;
+  logic        frame_start;
 
-  PreambleCorrelator #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pcorr1 (
+  PreambleCorrelator #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pcorr (
     .clk(clk), .rst_n(rst_n),
-    .s_axis_tvalid(pc0_tvalid), .s_axis_tready(pc0_tready),
-    .s_axis_tdata(pc0_tdata),   .s_axis_tlast(pc0_tlast),
-    .m_axis_tvalid(pc1_tvalid), .m_axis_tready(pc1_tready),
-    .m_axis_tdata(pc1_tdata),   .m_axis_tlast(pc1_tlast),
-    .frame_start(frame_start1)
+    .s_axis_tvalid(pi_tvalid), .s_axis_tready(pi_tready),
+    .s_axis_tdata(pi_tdata),   .s_axis_tlast(pi_tlast),
+    .m_axis_tvalid(pc_tvalid), .m_axis_tready(pc_tready),
+    .m_axis_tdata(pc_tdata),   .m_axis_tlast(pc_tlast),
+    .frame_start(frame_start)
   );
 
-  // ------------------------------------------------------------
-  // RX: Diff Decoder → Slicer
-  // (Descrambler removed)
-  // ------------------------------------------------------------
   // Diff Decoder
   logic        dd_in_valid, dd_in_ready, dd_in_last;
   logic [31:0] dd_in_data;
   logic        dd_out_valid, dd_out_ready, dd_out_last;
   logic [31:0] dd_out_data;
 
-  assign dd_in_valid = pc1_tvalid;
-  assign dd_in_data  = pc1_tdata;
-  assign dd_in_last  = pc1_tlast;
-  assign pc1_tready  = dd_in_ready;
+  assign dd_in_valid = pc_tvalid;
+  assign dd_in_data  = pc_tdata;
+  assign dd_in_last  = pc_tlast;
+  assign pc_tready   = dd_in_ready;
 
   // Diff Decoder AXI-Lite
   logic [7:0]  dd_awaddr;  logic dd_awvalid, dd_awready;
@@ -193,6 +187,7 @@ module tb_full_chain_no_fec;
     .clk_bb(clk), .rst_n(rst_n),
     .in_valid(dd_in_valid), .in_ready(dd_in_ready),
     .in_data (dd_in_data),  .in_last (dd_in_last),
+    .frame_start_i(frame_start),
     .out_valid(dd_out_valid), .out_ready(dd_out_ready),
     .out_data (dd_out_data),  .out_last (dd_out_last),
     .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
@@ -233,25 +228,76 @@ module tb_full_chain_no_fec;
     .s_axi_wdata (sl_wdata),  .s_axi_wstrb(sl_wstrb), .s_axi_wvalid(sl_wvalid), .s_axi_wready(sl_wready),
     .s_axi_bresp (sl_bresp),  .s_axi_bvalid(sl_bvalid), .s_axi_bready(sl_bready),
     .s_axi_araddr(sl_araddr), .s_axi_arvalid(sl_arvalid), .s_axi_arready(sl_arready),
-    .s_axi_rdata (sl_rdata),  .s_axi_rresp(sl_rresp), .s_axi_rvalid(sl_rvalid), .s_axi_rready(sl_rready)
+    .s_axi_rdata (sl_rdata),  .s_axi_rresp(sl_rresp),  .s_axi_rvalid(sl_rvalid), .s_axi_rready(sl_rready)
   );
 
-  // Sink slicer output (free-run the path for waveforms)
+  // Free-run the sink for waves
   assign sl_out_ready = 1'b1;
 
   // ------------------------------------------------------------
-  // REMOVED/COMMENTED OUT BLOCKS (kept for reference)
+  // CSV logging (PRBS out & SLICER out)
   // ------------------------------------------------------------
-  // byte_scrambler u_scr_tx (/* removed */);
-  // PreambleInserter u_preamble_ins (/* removed */);
-  // tx_packetizer u_tx_pkt (/* removed */);
-  // rx_depacketizer u_rx_depkt (/* removed */);
-  // PreambleCorrelator u_pcorr (/* replaced by u_pcorr0 + u_pcorr1 */);
-  // byte_scrambler u_scr_rx (/* removed */);
-  // Scoreboard/gates/timeout (removed)
+  integer f_prbs, f_slc;
+  int prbs_frame_idx = 0, prbs_beat_idx = 0;
+  int slc_frame_idx  = 0, slc_beat_idx  = 0;
+
+  // open files & headers
+  initial begin
+    wait (rst_n);
+    f_prbs = $fopen("prbs_out.csv","w");
+    f_slc  = $fopen("slicer_out.csv","w");
+    if (f_prbs == 0 || f_slc == 0) $fatal(1,"Failed to open CSV files.");
+    $fdisplay(f_prbs,"time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+    $fdisplay(f_slc, "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+  end
+
+  // PRBS → Mapper (accepted bytes)
+  always @(posedge clk) begin
+    if (rst_n && prbs_tvalid && prbs_tready) begin
+      $fdisplay(f_prbs, "%0t,%0d,%0d,%0d,%0d,%0d,%02h",
+        $time, prbs_frame_idx, prbs_beat_idx,
+        prbs_tvalid, prbs_tready, prbs_tlast, prbs_tdata);
+      prbs_beat_idx++;
+      if (prbs_tlast) begin
+        prbs_frame_idx++;
+        prbs_beat_idx = 0;
+      end
+    end
+  end
+
+  // SLICER output (accepted bytes)
+  always @(posedge clk) begin
+    if (rst_n && sl_out_valid && sl_out_ready) begin
+      $fdisplay(f_slc, "%0t,%0d,%0d,%0d,%0d,%0d,%02h",
+        $time, slc_frame_idx, slc_beat_idx,
+        sl_out_valid, sl_out_ready, sl_out_last, sl_out_data);
+      slc_beat_idx++;
+      if (sl_out_last) begin
+        slc_frame_idx++;
+        slc_beat_idx = 0;
+      end
+    end
+  end
+
+  // close files on finish
+  final begin
+    if (f_prbs) $fclose(f_prbs);
+    if (f_slc)  $fclose(f_slc);
+    $display("Wrote prbs_out.csv and slicer_out.csv");
+  end
 
   // ------------------------------------------------------------
-  // AXI-Lite write tasks (unchanged; used for simple bring-up)
+  // REMOVED / COMMENTED OUT (kept for reference)
+  // ------------------------------------------------------------
+  // byte_scrambler u_scr_tx (/* removed */);
+  // tx_packetizer u_tx_pkt (/* removed for this run */);
+  // rx_depacketizer u_rx_depkt (/* removed for this run */);
+  // PreambleCorrelator u_pcorr1 (/* not used here */);
+  // byte_scrambler u_scr_rx (/* removed */);
+  // Frame gate / scoreboard / timeout blocks (removed)
+
+  // ------------------------------------------------------------
+  // AXI-Lite write tasks (unchanged)
   // ------------------------------------------------------------
   task automatic axil_write_mapper(input byte addr, input logic [31:0] data);
   begin
@@ -315,7 +361,7 @@ module tb_full_chain_no_fec;
   endtask
 
   // ------------------------------------------------------------
-  // Init & simple programming
+  // Init & simple programming (unchanged)
   // ------------------------------------------------------------
   initial begin
     // zero AXI-Lite drivers
@@ -326,7 +372,7 @@ module tb_full_chain_no_fec;
     {prbs_awvalid,prbs_wvalid,prbs_bready,prbs_arvalid,prbs_rready} = '0;
 
     m_awaddr=0; m_wdata=0; m_wstrb=0;
-    de_awaddr=0; de_wdata=0; de_wstrb=0;
+    de_awaddr=0; de_wdata=0; dd_wstrb=0; // note: de_wstrb assigned above; harmless here
     dd_awaddr=0; dd_wdata=0; dd_wstrb=0;
     sl_awaddr=0; sl_wdata=0; sl_wstrb=0;
     prbs_awaddr=0; prbs_wdata=0; prbs_wstrb=0;
@@ -349,7 +395,6 @@ module tb_full_chain_no_fec;
     axil_write_prbs(8'h00, 32'h0000_0031);
   end
 
-  // No self-checking, no watchdog: run and view waveforms.
-  // Stop manually from the simulator when you've seen enough.
+  // No self-checking; stop the sim whenever you’re done inspecting waves.
 
 endmodule
