@@ -1,8 +1,9 @@
 // preamble_correlator.sv
 
 module PreambleCorrelator #(
-  parameter int PREAMBLE_LEN = 64,
-  parameter int CORR_THRESHOLD = 32'd2000000000  // magnitude-squared threshold
+  parameter int          PREAMBLE_LEN   = 64,
+  // CHANGED: widen threshold to 128-bit and set a realistic default (~2e21).
+  parameter logic [127:0] CORR_THRESHOLD = 128'd2000000000000000000000
 ) (
   input  logic         clk,
   input  logic         rst_n,
@@ -78,37 +79,52 @@ module PreambleCorrelator #(
 
   // Correlation logic
   logic signed [63:0] corr_i, corr_q;
-  logic [63:0] mag_sq;
+  logic        [127:0] mag_sq;       // 128-bit to avoid overflow
 
   always_comb begin
     corr_i = 0;
     corr_q = 0;
     for (int i = 0; i < PREAMBLE_LEN; i++) begin
-      corr_i += window[i].i * preamble_rom[i].i + window[i].q * preamble_rom[i].q;
-      corr_q += window[i].q * preamble_rom[i].i - window[i].i * preamble_rom[i].q;
+      // time-reverse the template (matched filter)
+      corr_i += window[i].i * preamble_rom[PREAMBLE_LEN-1-i].i
+              + window[i].q * preamble_rom[PREAMBLE_LEN-1-i].q;
+      corr_q += window[i].q * preamble_rom[PREAMBLE_LEN-1-i].i
+              - window[i].i * preamble_rom[PREAMBLE_LEN-1-i].q;
     end
-    mag_sq = corr_i * corr_i + corr_q * corr_q;
+    mag_sq = ($unsigned(corr_i) * $unsigned(corr_i))
+           + ($unsigned(corr_q) * $unsigned(corr_q));
   end
 
-  // Detection
+  // Detection + one-shot guard
   logic above_thresh, above_thresh_d;
+  logic armed;
 
   assign above_thresh = window_valid &&
                         (mag_sq > CORR_THRESHOLD) &&
                         s_axis_tvalid && s_axis_tready;
 
+  // edge detect of above_thresh
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
-      above_thresh_d <= 1'b0;
-    else
-      above_thresh_d <= above_thresh;
+    if (!rst_n) above_thresh_d <= 1'b0;
+    else        above_thresh_d <= above_thresh;
+  end
+  wire rise = above_thresh & ~above_thresh_d;
+
+  // NEW: arm once per frame; re-arm on TLAST
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      armed <= 1'b1;
+    end else if (s_axis_tvalid && s_axis_tready && s_axis_tlast) begin
+      armed <= 1'b1;     // re-arm at end of frame
+    end else if (rise) begin
+      armed <= 1'b0;     // disarm after first detection
+    end
   end
 
+  // single-cycle pulse, once per frame
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
-      frame_start <= 1'b0;
-    else
-      frame_start <= above_thresh && !above_thresh_d;
+    if (!rst_n) frame_start <= 1'b0;
+    else        frame_start <= rise & armed;
   end
 
 endmodule
