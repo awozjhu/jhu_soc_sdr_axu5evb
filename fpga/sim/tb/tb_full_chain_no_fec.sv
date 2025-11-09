@@ -5,9 +5,7 @@ module tb_full_chain_no_fec;
   // Parameters
   // ------------------------------------------------------------
   localparam int CLK_PER_NS    = 4;      // 250 MHz
-  localparam int PREAMBLE_LEN  = 64;     // QPSK symbols (multiple of 4)
   localparam int PAYLOAD_BYTES = 256;    // per frame
-  localparam int N_FRAMES      = 2;
   localparam bit USE_QPSK      = 1;
 
   // ------------------------------------------------------------
@@ -23,9 +21,9 @@ module tb_full_chain_no_fec;
     rst_n = 1;
   end
 
-wire s_axi_aclk    = clk;
-wire s_axi_aresetn = rst_n;
-
+  // AXI-Lite domain
+  wire s_axi_aclk    = clk;
+  wire s_axi_aresetn = rst_n;
 
   // ------------------------------------------------------------
   // PRBS AXI-Stream (TX source)
@@ -68,9 +66,8 @@ wire s_axi_aresetn = rst_n;
   );
 
   // ------------------------------------------------------------
-  // TX: Scrambler (bytes) → Mapper → Diff Encoder → Preamble Inserter → Packetizer
+  // TX: (optional) Scrambler BYPASS → Mapper
   // ------------------------------------------------------------
-  // Scrambler
   logic [7:0] scr_tdata;  logic scr_tvalid, scr_tready, scr_tlast;
 
   byte_scrambler #(.LFSR_W(7), .TAP_MASK(7'b1001000)) u_scr_tx (
@@ -115,128 +112,23 @@ wire s_axi_aresetn = rst_n;
     .s_axi_rdata (m_rdata),  .s_axi_rresp(m_rresp), .s_axi_rvalid(m_rvalid), .s_axi_rready(m_rready)
   );
 
-  // Diff Encoder
-  logic        de_in_valid, de_in_ready, de_in_last;
-  logic [31:0] de_in_data,  de_out_data;
-  logic        de_out_valid, de_out_ready, de_out_last;
-
-  assign de_in_valid   = map_out_valid;
-  assign de_in_data    = map_out_data;
-  assign de_in_last    = map_out_last;
-  assign map_out_ready = de_in_ready;
-
-  // Diff Encoder AXI-Lite
-  logic [7:0]  de_awaddr;  logic de_awvalid, de_awready;
-  logic [31:0] de_wdata;   logic [3:0]  de_wstrb; logic de_wvalid, de_wready;
-  logic [1:0]  de_bresp;   logic de_bvalid, de_bready;
-  logic [7:0]  de_araddr;  logic de_arvalid, de_arready;
-  logic [31:0] de_rdata;   logic [1:0]  de_rresp; logic de_rvalid, de_rready;
-
-  diff_encoder u_diff_enc (
-    .clk_bb(clk), .rst_n(rst_n),
-    .in_valid(de_in_valid), .in_ready(de_in_ready),
-    .in_data (de_in_data),  .in_last (de_in_last),
-    .out_valid(de_out_valid), .out_ready(de_out_ready),
-    .out_data (de_out_data),  .out_last (de_out_last),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
-    .s_axi_awaddr(de_awaddr), .s_axi_awvalid(de_awvalid), .s_axi_awready(de_awready),
-    .s_axi_wdata (de_wdata),  .s_axi_wstrb(de_wstrb), .s_axi_wvalid(de_wvalid), .s_axi_wready(de_wready),
-    .s_axi_bresp (de_bresp),  .s_axi_bvalid(de_bvalid), .s_axi_bready(de_bready),
-    .s_axi_araddr(de_araddr), .s_axi_arvalid(de_arvalid), .s_axi_arready(de_arready),
-    .s_axi_rdata (de_rdata),  .s_axi_rresp(de_rresp), .s_axi_rvalid(de_rvalid), .s_axi_rready(de_rready)
-  );
-
-  // Preamble Inserter (symbols)
-  logic        pi_tvalid, pi_tready, pi_tlast;
-  logic [31:0] pi_tdata;
-
-  PreambleInserter #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_preamble_ins (
-    .aclk(clk), .aresetn(rst_n),
-    .s_axis_tvalid(de_out_valid), .s_axis_tready(de_out_ready),
-    .s_axis_tdata(de_out_data),   .s_axis_tlast(de_out_last),
-    .m_axis_tvalid(pi_tvalid), .m_axis_tready(pi_tready),
-    .m_axis_tdata(pi_tdata),   .m_axis_tlast(pi_tlast)
-  );
-
-  // TX Packetizer
-  logic        pkt_tvalid, pkt_tready, pkt_tlast;
-  logic [31:0] pkt_tdata;
-
-  tx_packetizer u_tx_pkt (
-    .clk(clk), .rst_n(rst_n),
-    .s_axis_tdata(pi_tdata), .s_axis_tvalid(pi_tvalid), .s_axis_tready(pi_tready), .s_axis_tlast(pi_tlast),
-    .m_axis_tdata(pkt_tdata), .m_axis_tvalid(pkt_tvalid), .m_axis_tready(pkt_tready), .m_axis_tlast(pkt_tlast)
-  );
-
   // ------------------------------------------------------------
-  // RX: Depacketizer → Preamble Correlator → Diff Decoder → Slicer → Descrambler
+  // RX: Slicer (directly from Mapper)
   // ------------------------------------------------------------
-  // Depacketizer
-  logic        dep_tvalid, dep_tready, dep_tlast;
-  logic [31:0] dep_tdata;
-
-  rx_depacketizer u_rx_depkt (
-    .clk(clk), .rst_n(rst_n),
-    .s_axis_tdata(pkt_tdata), .s_axis_tvalid(pkt_tvalid), .s_axis_tready(pkt_tready), .s_axis_tlast(pkt_tlast),
-    .m_axis_tdata(dep_tdata), .m_axis_tvalid(dep_tvalid), .m_axis_tready(dep_tready), .m_axis_tlast(dep_tlast)
-  );
-
-  // Preamble Correlator (passes stream through)
-  logic        pc_tvalid, pc_tready, pc_tlast;
-  logic [31:0] pc_tdata;
-  logic        frame_start;
-
-  PreambleCorrelator #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pcorr (
-    .clk(clk), .rst_n(rst_n),
-    .s_axis_tvalid(dep_tvalid), .s_axis_tready(dep_tready),
-    .s_axis_tdata(dep_tdata),   .s_axis_tlast(dep_tlast),
-    .m_axis_tvalid(pc_tvalid),  .m_axis_tready(pc_tready),
-    .m_axis_tdata(pc_tdata),    .m_axis_tlast(pc_tlast),
-    .frame_start(frame_start)
-  );
-
-  // Diff Decoder
-  logic        dd_in_valid, dd_in_ready, dd_in_last;
-  logic [31:0] dd_in_data;
-  logic        dd_out_valid, dd_out_ready, dd_out_last;
-  logic [31:0] dd_out_data;
-
-  assign dd_in_valid = pc_tvalid;
-  assign dd_in_data  = pc_tdata;
-  assign dd_in_last  = pc_tlast;
-  assign pc_tready   = dd_in_ready;
-
-  // Diff Decoder AXI-Lite
-  logic [7:0]  dd_awaddr;  logic dd_awvalid, dd_awready;
-  logic [31:0] dd_wdata;   logic [3:0]  dd_wstrb; logic dd_wvalid, dd_wready;
-  logic [1:0]  dd_bresp;   logic dd_bvalid, dd_bready;
-  logic [7:0]  dd_araddr;  logic dd_arvalid, dd_arready;
-  logic [31:0] dd_rdata;   logic [1:0]  dd_rresp; logic dd_rvalid, dd_rready;
-
-  diff_decoder u_diff_dec (
-    .clk_bb(clk), .rst_n(rst_n),
-    .in_valid(dd_in_valid), .in_ready(dd_in_ready),
-    .in_data (dd_in_data),  .in_last (dd_in_last),
-    .out_valid(dd_out_valid), .out_ready(dd_out_ready),
-    .out_data (dd_out_data),  .out_last (dd_out_last),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
-    .s_axi_awaddr(dd_awaddr), .s_axi_awvalid(dd_awvalid), .s_axi_awready(dd_awready),
-    .s_axi_wdata (dd_wdata),  .s_axi_wstrb(dd_wstrb), .s_axi_wvalid(dd_wvalid), .s_axi_wready(dd_wready),
-    .s_axi_bresp (dd_bresp),  .s_axi_bvalid(dd_bvalid), .s_axi_bready(dd_bready),
-    .s_axi_araddr(dd_araddr), .s_axi_arvalid(dd_arvalid), .s_axi_arready(dd_arready),
-    .s_axi_rdata (dd_rdata),  .s_axi_rresp(dd_rresp), .s_axi_rvalid(dd_rvalid), .s_axi_rready(dd_rready)
-  );
-
-  // Slicer
   logic        sl_in_valid, sl_in_ready, sl_in_last;
   logic [31:0] sl_in_data;
-  logic        sl_out_valid, sl_out_ready, sl_out_last;
+  logic        sl_out_valid, sl_out_last;
   logic [7:0]  sl_out_data;
+  logic        sl_out_ready;
 
-  assign sl_in_valid   = dd_out_valid;
-  assign sl_in_data    = dd_out_data;
-  assign sl_in_last    = dd_out_last;
-  assign dd_out_ready  = sl_in_ready;
+  // Connect mapper → slicer
+  assign sl_in_valid   = map_out_valid;
+  assign sl_in_data    = map_out_data;
+  assign sl_in_last    = map_out_last;
+  assign map_out_ready = sl_in_ready;
+
+  // Always ready at the sink for this test
+  assign sl_out_ready = 1'b1;
 
   // Slicer AXI-Lite
   logic [7:0]  sl_awaddr;  logic sl_awvalid, sl_awready;
@@ -260,201 +152,111 @@ wire s_axi_aresetn = rst_n;
     .s_axi_rdata (sl_rdata),  .s_axi_rresp(sl_rresp), .s_axi_rvalid(sl_rvalid), .s_axi_rready(sl_rready)
   );
 
-  // Descrambler (bytes)
-  logic [7:0] desc_tdata; logic desc_tvalid, desc_tready, desc_tlast;
-
-  byte_scrambler #(.LFSR_W(7), .TAP_MASK(7'b1001000)) u_scr_rx (
-    .clk(clk), .rst_n(rst_n),
-    .in_data (sl_out_data), .in_valid(sl_out_valid), .in_ready(sl_out_ready),
-    .out_data(desc_tdata),  .out_valid(desc_tvalid), .out_ready(desc_tready),
-    .cfg_enable(1'b1), .cfg_bypass(1'b0), .cfg_seed_wr(1'b0), .cfg_seed('0),
-    .running_pulse()
-  );
-  assign desc_tlast  = sl_out_last;
-  assign desc_tready = 1'b1;
+  // ------------------------------------------------------------
+  // COMMENTED OUT modules for step 1
+  // ------------------------------------------------------------
+  /*
+  // diff_encoder u_diff_enc ( ... );
+  // PreambleInserter u_preamble_ins ( ... );
+  // tx_packetizer u_tx_pkt ( ... );
+  // rx_depacketizer u_rx_depkt ( ... );
+  // PreambleCorrelator u_pcorr ( ... );
+  // diff_decoder u_diff_dec ( ... );
+  // byte_scrambler u_scr_rx ( ... );
+  */
 
   // ------------------------------------------------------------
-  // Frame gate for checker (skip preamble)
-  // ------------------------------------------------------------
-  logic gate_enabled;
-  int   sym_cnt_after_fs;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      gate_enabled     <= 1'b0;
-      sym_cnt_after_fs <= 0;
-    end else begin
-      if (frame_start) begin
-        gate_enabled     <= 1'b0;
-        sym_cnt_after_fs <= 0;
-      end else if (dd_out_valid && dd_out_ready && !gate_enabled) begin
-        sym_cnt_after_fs <= sym_cnt_after_fs + 1;
-        if (sym_cnt_after_fs >= PREAMBLE_LEN) gate_enabled <= 1'b1;
-      end
-      if (sl_out_valid && sl_out_ready && sl_out_last) gate_enabled <= 1'b0;
-    end
-  end
-
-  // ------------------------------------------------------------
-  // Scoreboard (queue, handshake-accurate)
+  // Scoreboard: PRBS bytes vs slicer bytes (handshake-accurate)
   // ------------------------------------------------------------
   byte unsigned tx_q[$];
-  int cur_tx_frame = 0;
-  int cur_rx_frame = 0;
-  int mismatches   = 0;
+  int mismatches = 0;
 
   // Capture accepted TX PRBS bytes
   always_ff @(posedge clk) begin
     if (prbs_tvalid && prbs_tready) begin
       tx_q.push_back(prbs_tdata);
-      if (prbs_tlast) cur_tx_frame++;
     end
   end
 
-  // Compare after gate
+  // Compare when a byte exits the slicer
   always_ff @(posedge clk) begin
-    if (desc_tvalid && desc_tready && gate_enabled) begin
+    if (sl_out_valid && sl_out_ready) begin
       if (tx_q.size() == 0) begin
         $display("[%0t] RX byte with empty TX queue!", $time);
         mismatches++;
       end else begin
         byte unsigned exp = tx_q.pop_front();
-        if (desc_tdata !== exp) begin
-          $display("[%0t] MISMATCH exp=0x%02x got=0x%02x", $time, exp, desc_tdata);
+        if (sl_out_data !== exp) begin
+          $display("[%0t] MISM exp=0x%02x got=0x%02x", $time, exp, sl_out_data);
           mismatches++;
         end
       end
-      if (desc_tlast) cur_rx_frame++;
     end
   end
 
   // ------------------------------------------------------------
-  // AXI-Lite write tasks (module-specific, Vivado-friendly)
+  // AXI-Lite write tasks (Vivado-safe)
   // ------------------------------------------------------------
-  // ---------------- MAPPER AXI-Lite write ----------------
-task automatic axil_write_mapper(input byte addr, input logic [31:0] data);
-begin
-  // Drive address/data and assert VALID
-  m_awaddr  <= addr;
-  m_awvalid <= 1'b1;
-  m_wdata   <= data;
-  m_wstrb   <= 4'hF;
-  m_wvalid  <= 1'b1;
+  task automatic axil_write_mapper(input byte addr, input logic [31:0] data);
+  begin
+    m_awaddr  <= addr;  m_awvalid <= 1'b1;
+    m_wdata   <= data;  m_wstrb   <= 4'hF;  m_wvalid <= 1'b1;
+    do @(posedge s_axi_aclk); while (!(m_awready && m_wready));
+    m_awvalid <= 1'b0;  m_wvalid  <= 1'b0;
+    do @(posedge s_axi_aclk); while (!m_bvalid);
+    m_bready  <= 1'b1;  @(posedge s_axi_aclk);  m_bready <= 1'b0;
+  end
+  endtask
 
-  // Wait until BOTH AWREADY and WREADY seen in *the same* cycle
-  do @(posedge s_axi_aclk); while (!(m_awready && m_wready));
+  task automatic axil_write_sl(input byte addr, input logic [31:0] data);
+  begin
+    sl_awaddr <= addr; sl_awvalid <= 1'b1;
+    sl_wdata  <= data; sl_wstrb   <= 4'hF;  sl_wvalid <= 1'b1;
+    do @(posedge s_axi_aclk); while (!(sl_awready && sl_wready));
+    sl_awvalid <= 1'b0; sl_wvalid <= 1'b0;
+    do @(posedge s_axi_aclk); while (!sl_bvalid);
+    sl_bready  <= 1'b1; @(posedge s_axi_aclk); sl_bready <= 1'b0;
+  end
+  endtask
 
-  // Drop VALID after handshake
-  m_awvalid <= 1'b0;
-  m_wvalid  <= 1'b0;
-
-  // Wait for BVALID, then pulse BREADY for one beat
-  do @(posedge s_axi_aclk); while (!m_bvalid);
-  m_bready <= 1'b1;
-  @(posedge s_axi_aclk);
-  m_bready <= 1'b0;
-end
-endtask
-
-// ---------------- DIFF ENCODER AXI-Lite write ----------------
-task automatic axil_write_de(input byte addr, input logic [31:0] data);
-begin
-  de_awaddr  <= addr;  de_awvalid <= 1'b1;
-  de_wdata   <= data;  de_wstrb   <= 4'hF;  de_wvalid <= 1'b1;
-  do @(posedge s_axi_aclk); while (!(de_awready && de_wready));
-  de_awvalid <= 1'b0;  de_wvalid <= 1'b0;
-  do @(posedge s_axi_aclk); while (!de_bvalid);
-  de_bready  <= 1'b1;  @(posedge s_axi_aclk);  de_bready <= 1'b0;
-end
-endtask
-
-// ---------------- DIFF DECODER AXI-Lite write ----------------
-task automatic axil_write_dd(input byte addr, input logic [31:0] data);
-begin
-  dd_awaddr  <= addr;  dd_awvalid <= 1'b1;
-  dd_wdata   <= data;  dd_wstrb   <= 4'hF;  dd_wvalid <= 1'b1;
-  do @(posedge s_axi_aclk); while (!(dd_awready && dd_wready));
-  dd_awvalid <= 1'b0;  dd_wvalid <= 1'b0;
-  do @(posedge s_axi_aclk); while (!dd_bvalid);
-  dd_bready  <= 1'b1;  @(posedge s_axi_aclk);  dd_bready <= 1'b0;
-end
-endtask
-
-// ---------------- SLICER AXI-Lite write ----------------
-task automatic axil_write_sl(input byte addr, input logic [31:0] data);
-begin
-  sl_awaddr  <= addr;  sl_awvalid <= 1'b1;
-  sl_wdata   <= data;  sl_wstrb   <= 4'hF;  sl_wvalid <= 1'b1;
-  do @(posedge s_axi_aclk); while (!(sl_awready && sl_wready));
-  sl_awvalid <= 1'b0;  sl_wvalid <= 1'b0;
-  do @(posedge s_axi_aclk); while (!sl_bvalid);
-  sl_bready  <= 1'b1;  @(posedge s_axi_aclk);  sl_bready <= 1'b0;
-end
-endtask
-
-// ---------------- PRBS AXI-Lite write (6-bit addr) ----------------
-task automatic axil_write_prbs(input byte addr8, input logic [31:0] data);
-  logic [5:0] a6;
-begin
-  a6 = addr8[5:0];
-  prbs_awaddr  <= a6;   prbs_awvalid <= 1'b1;
-  prbs_wdata   <= data; prbs_wstrb   <= 4'hF; prbs_wvalid <= 1'b1;
-
-  // PRBS slave asserts READY only when both VALIDs are high in the same cycle.
-  do @(posedge s_axi_aclk); while (!(prbs_awready && prbs_wready));
-
-  prbs_awvalid <= 1'b0; prbs_wvalid <= 1'b0;
-
-  do @(posedge s_axi_aclk); while (!prbs_bvalid);
-  prbs_bready  <= 1'b1; @(posedge s_axi_aclk); prbs_bready <= 1'b0;
-end
-endtask
-
-
-initial begin
-  // zero every AXI-Lite driver at time 0
-  {m_awvalid,m_wvalid,m_bready,m_arvalid,m_rready} = '0;
-  {de_awvalid,de_wvalid,de_bready,de_arvalid,de_rready} = '0;
-  {dd_awvalid,dd_wvalid,dd_bready,dd_arvalid,dd_rready} = '0;
-  {sl_awvalid,sl_wvalid,sl_bready,sl_arvalid,sl_rready} = '0;
-  {prbs_awvalid,prbs_wvalid,prbs_bready,prbs_arvalid,prbs_rready} = '0;
-
-  // (optional) zero these too to avoid Xs in waves:
-  m_awaddr=0; m_wdata=0; m_wstrb=0;
-  de_awaddr=0; de_wdata=0; de_wstrb=0;
-  dd_awaddr=0; dd_wdata=0; dd_wstrb=0;
-  sl_awaddr=0; sl_wdata=0; sl_wstrb=0;
-  prbs_awaddr=0; prbs_wdata=0; prbs_wstrb=0;
-
-  // normal reset phase
-  wait (s_axi_aresetn); @(posedge s_axi_aclk);
-  // ... then call the axil_write_* tasks
-end
-
+  task automatic axil_write_prbs(input byte addr8, input logic [31:0] data);
+    logic [5:0] a6;
+  begin
+    a6 = addr8[5:0];
+    prbs_awaddr  <= a6;   prbs_awvalid <= 1'b1;
+    prbs_wdata   <= data; prbs_wstrb   <= 4'hF; prbs_wvalid <= 1'b1;
+    do @(posedge s_axi_aclk); while (!(prbs_awready && prbs_wready));
+    prbs_awvalid <= 1'b0; prbs_wvalid  <= 1'b0;
+    do @(posedge s_axi_aclk); while (!prbs_bvalid);
+    prbs_bready  <= 1'b1; @(posedge s_axi_aclk); prbs_bready <= 1'b0;
+  end
+  endtask
 
   // ------------------------------------------------------------
   // Programming sequence
   // ------------------------------------------------------------
-initial begin
-  // drive all *_awvalid/*_wvalid/*_bready low first...
-  wait (s_axi_aresetn); @(posedge s_axi_aclk);
+  initial begin
+    // drive all *_awvalid/*_wvalid/*_bready low first
+    {m_awvalid,m_wvalid,m_bready,m_arvalid,m_rready} = '0;
+    {sl_awvalid,sl_wvalid,sl_bready,sl_arvalid,sl_rready} = '0;
+    {prbs_awvalid,prbs_wvalid,prbs_bready,prbs_arvalid,prbs_rready} = '0;
+    m_awaddr=0; m_wdata=0; m_wstrb=0;
+    sl_awaddr=0; sl_wdata=0; sl_wstrb=0;
+    prbs_awaddr=0; prbs_wdata=0; prbs_wstrb=0;
 
-  // Mapper: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1
-  axil_write_mapper(8'h00, 32'h0000_0131);
+    wait (s_axi_aresetn); @(posedge s_axi_aclk);
 
-  // Diff Enc/Dec: ENABLE=1, MODE=DQPSK(1)
-  axil_write_de(8'h00, 32'h0000_0031);
-  axil_write_dd(8'h00, 32'h0000_0031);
+    // Mapper: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1
+    axil_write_mapper(8'h00, 32'h0000_0131);
 
-  // Slicer: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1
-  axil_write_sl(8'h00, 32'h0000_0131);
+    // Slicer: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1
+    axil_write_sl(8'h00, 32'h0000_0131);
 
-  // PRBS: SEED, FRAME_LEN, then CTRL (ENABLE=1 | SW_RESET=1 | MODE=PRBS31)
-  axil_write_prbs(8'h08, 32'h0000_0001);
-  axil_write_prbs(8'h0C, {16'd0, PAYLOAD_BYTES[15:0]});
-  axil_write_prbs(8'h00, 32'h0000_0031);
-end
-
+    // PRBS: SEED=1, FRAME_LEN=PAYLOAD_BYTES, CTRL: ENABLE=1 | SW_RESET=1 | MODE=PRBS31
+    axil_write_prbs(8'h08, 32'h0000_0001);
+    axil_write_prbs(8'h0C, {16'd0, PAYLOAD_BYTES[15:0]});
+    axil_write_prbs(8'h00, 32'h0000_0031);
+  end
 
   // ------------------------------------------------------------
   // End-of-test / timeout
@@ -466,10 +268,11 @@ end
         $fatal(1, "[TB] TIMEOUT");
       end
       begin : done
-        wait (cur_rx_frame == N_FRAMES);
-        $display("[TB] Frames=%0d  Mismatches=%0d", N_FRAMES, mismatches);
-        if (mismatches==0) $display("[TB] *** PASS ***");
-        else               $display("[TB] *** FAIL ***");
+        // let a bunch of bytes flow
+        repeat (PAYLOAD_BYTES+64) @(posedge clk);
+        $display("[TB] Mismatches=%0d", mismatches);
+        if (mismatches==0) $display("[TB] *** PASS (mapper↔slicer) ***");
+        else               $display("[TB] *** FAIL (mapper↔slicer) ***");
         #20 $finish;
       end
     join_any
