@@ -3,13 +3,13 @@
 module tb_preamble_pkt_depkt;
 
   // ------------------------------------------------------------
-  // Clock / Reset (single domain for all 3 DUTs)
+  // Clock / Reset (single domain for all DUTs)
   // ------------------------------------------------------------
   reg clk = 0;
   always #5 clk = ~clk;  // 100 MHz
 
-  reg rst_n;             // active-high for pkt/depkt
-  reg aresetn;           // active-low for PreambleInserter
+  reg rst_n;
+  reg aresetn;
   initial begin
     rst_n   = 0;
     aresetn = 0;
@@ -24,9 +24,8 @@ module tb_preamble_pkt_depkt;
   localparam int PREAMBLE_LEN  = 64;
   localparam int PAYLOAD_WORDS = 5;
 
-  // Same Q1.15 constants used by the inserter
-  localparam logic [15:0] P = 16'h5A82; // +0.7071
-  localparam logic [15:0] N = 16'hA57E; // -0.7071
+  localparam logic [15:0] P = 16'h5A82;
+  localparam logic [15:0] N = 16'hA57E;
 
   // ------------------------------------------------------------
   // AXIS: Source → PreambleInserter
@@ -37,80 +36,90 @@ module tb_preamble_pkt_depkt;
   reg         s_tlast;
 
   // ------------------------------------------------------------
-  // AXIS: PreambleInserter → Packetizer (link A)
-  // ------------------------------------------------------------
+  // PreambleInserter → Packetizer (link A)
   wire        a_tvalid;
   wire        a_tready;
   wire [31:0] a_tdata;
   wire        a_tlast;
 
   // ------------------------------------------------------------
-  // AXIS: Packetizer → Depacketizer (link B)
-  // ------------------------------------------------------------
+  // Packetizer → Depacketizer (link B)
   wire        b_tvalid;
   wire        b_tready;
   wire [31:0] b_tdata;
   wire        b_tlast;
 
   // ------------------------------------------------------------
-  // AXIS: Depacketizer → Sink (checker)
+  // Depacketizer → PreambleCorrelator
+  wire        mc_tvalid;
+  wire        mc_tready;
+  wire [31:0] mc_tdata;
+  wire        mc_tlast;
+
   // ------------------------------------------------------------
+  // PreambleCorrelator → Sink
   wire        m_tvalid;
   reg         m_tready;
   wire [31:0] m_tdata;
   wire        m_tlast;
+  wire        frame_start;
 
-  initial m_tready = 1'b1; // keep sink open; randomize later if desired
+  initial m_tready = 1'b1;
 
   // ------------------------------------------------------------
   // DUTs
   // ------------------------------------------------------------
-  // 1) Preamble Inserter (uses aclk/aresetn)
-  PreambleInserter #(
-    .PREAMBLE_LEN(PREAMBLE_LEN)
-  ) u_pre (
-    .aclk          (clk),
-    .aresetn       (aresetn),
-    .s_axis_tvalid (s_tvalid),
-    .s_axis_tready (s_tready),
-    .s_axis_tdata  (s_tdata),
-    .s_axis_tlast  (s_tlast),
-    .m_axis_tvalid (a_tvalid),
-    .m_axis_tready (a_tready),
-    .m_axis_tdata  (a_tdata),
-    .m_axis_tlast  (a_tlast)
+  PreambleInserter #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pre (
+    .aclk(clk),
+    .aresetn(aresetn),
+    .s_axis_tvalid(s_tvalid),
+    .s_axis_tready(s_tready),
+    .s_axis_tdata(s_tdata),
+    .s_axis_tlast(s_tlast),
+    .m_axis_tvalid(a_tvalid),
+    .m_axis_tready(a_tready),
+    .m_axis_tdata(a_tdata),
+    .m_axis_tlast(a_tlast)
   );
 
-  // 2) Packetizer (expects 32-bit stream: preamble + payload)
-  tx_packetizer #(
-    .DATA_WIDTH(32)
-  ) u_pkt (
-    .clk            (clk),
-    .rst_n          (rst_n),
-    .s_axis_tdata   (a_tdata),
-    .s_axis_tvalid  (a_tvalid),
-    .s_axis_tready  (a_tready),
-    .s_axis_tlast   (a_tlast),
-    .m_axis_tdata   (b_tdata),
-    .m_axis_tvalid  (b_tvalid),
-    .m_axis_tready  (b_tready),
-    .m_axis_tlast   (b_tlast)
+  tx_packetizer #(.DATA_WIDTH(32)) u_pkt (
+    .clk(clk),
+    .rst_n(rst_n),
+    .s_axis_tdata(a_tdata),
+    .s_axis_tvalid(a_tvalid),
+    .s_axis_tready(a_tready),
+    .s_axis_tlast(a_tlast),
+    .m_axis_tdata(b_tdata),
+    .m_axis_tvalid(b_tvalid),
+    .m_axis_tready(b_tready),
+    .m_axis_tlast(b_tlast)
   );
 
-  // 3) Depacketizer (strips header; outputs preamble + payload only)
-  rx_depacketizer #(
-    .DATA_WIDTH(32)
-  ) u_depkt (
-    .clk            (clk),
-    .rst_n          (rst_n),
-    .s_axis_tdata   (b_tdata),
-    .s_axis_tvalid  (b_tvalid),
-    .s_axis_tready  (b_tready),
-    .s_axis_tlast   (b_tlast),
-    .m_axis_tdata   (m_tdata),
-    .m_axis_tvalid  (m_tvalid),
-    .m_axis_tready  (m_tready),
-    .m_axis_tlast   (m_tlast)
+  rx_depacketizer #(.DATA_WIDTH(32)) u_depkt (
+    .clk(clk),
+    .rst_n(rst_n),
+    .s_axis_tdata(b_tdata),
+    .s_axis_tvalid(b_tvalid),
+    .s_axis_tready(b_tready),
+    .s_axis_tlast(b_tlast),
+    .m_axis_tdata(mc_tdata),
+    .m_axis_tvalid(mc_tvalid),
+    .m_axis_tready(mc_tready),
+    .m_axis_tlast(mc_tlast)
+  );
+
+  PreambleCorrelator u_corr (
+    .clk(clk),
+    .rst_n(rst_n),
+    .s_axis_tvalid(mc_tvalid),
+    .s_axis_tready(mc_tready),
+    .s_axis_tdata(mc_tdata),
+    .s_axis_tlast(mc_tlast),
+    .m_axis_tvalid(m_tvalid),
+    .m_axis_tready(m_tready),
+    .m_axis_tdata(m_tdata),
+    .m_axis_tlast(m_tlast),
+    .frame_start(frame_start)
   );
 
 
