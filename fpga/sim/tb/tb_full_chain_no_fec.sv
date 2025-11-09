@@ -316,15 +316,29 @@ module tb_full_chain_no_fec;
 
     wait (s_axi_aresetn); @(posedge s_axi_aclk);
 
-    // Mapper: ENABLE=1, BYPASS=1 (force BPSK on I), AMC_OVERRIDE=1 → 0x00000103
-    axil_write_mapper(8'h00, 32'h0000_0103);
+// QPSK/DQPSK configuration
 
-    // Diff Enc/Dec: ENABLE=1, MODE=DBPSK (0), SW_RESET pulse → 0x00000005
-    axil_write_de(8'h00, 32'h0000_0005);
-    axil_write_dd(8'h00, 32'h0000_0005);
+    // Mapper: ENABLE=1, BYPASS=0 (use mapper), MODE=QPSK(1), AMC_OVERRIDE=1
+    axil_write_mapper(8'h00, 32'h0000_0131);
 
-    // Slicer: ENABLE=1, BYPASS=1 (BPSK decisions), AMC_OVERRIDE=1 → 0x00000103
-    axil_write_sl(8'h00, 32'h0000_0103);
+    // Diff Encoder/Decoder: ENABLE=1, MODE=DQPSK(1), SW_RESET=1 (one-shot)
+    axil_write_de(8'h00, 32'h0000_0015);  // bit0=ENABLE, bit2=SW_RESET, bits[6:4]=1
+    axil_write_dd(8'h00, 32'h0000_0015);
+
+    // Slicer: ENABLE=1, BYPASS=0, MODE=QPSK(1), AMC_OVERRIDE=1
+    axil_write_sl(8'h00, 32'h0000_0131);
+
+
+// BPSK/DBPSK configuration:
+    // // Mapper: ENABLE=1, BYPASS=1 (force BPSK on I), AMC_OVERRIDE=1 → 0x00000103
+    // axil_write_mapper(8'h00, 32'h0000_0103);
+
+    // // Diff Enc/Dec: ENABLE=1, MODE=DBPSK (0), SW_RESET pulse → 0x00000005
+    // axil_write_de(8'h00, 32'h0000_0005);
+    // axil_write_dd(8'h00, 32'h0000_0005);
+
+    // // Slicer: ENABLE=1, BYPASS=1 (BPSK decisions), AMC_OVERRIDE=1 → 0x00000103
+    // axil_write_sl(8'h00, 32'h0000_0103);
 
     // PRBS: SEED, FRAME_LEN, then CTRL (ENABLE=1 | MODE=PRBS31). 0x31 matches your prior runs.
     axil_write_prbs(8'h08, 32'h0000_0001);                         // SEED=1
