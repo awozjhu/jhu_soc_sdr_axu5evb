@@ -285,7 +285,8 @@ module diff_decoder #(
       // Local soft reset
       if (ctrl_sw_reset || fs_rise) begin
         prev_I     <= ONE_Q15;
-        prev_Q     <= 16'sd0;
+        prev_Q     <= ONE_Q15;
+        // prev_Q     <= 16'sd0;
         hold_valid <= 1'b0;
       end
 
