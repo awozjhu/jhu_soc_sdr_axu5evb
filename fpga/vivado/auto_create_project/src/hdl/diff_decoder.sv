@@ -24,6 +24,8 @@ module diff_decoder #(
   input  logic [31:0] in_data,     // {I[15:0], Q[15:0]} signed Q1.15
   input  logic        in_last,
 
+  input logic frame_start_i,  // asserted 1 clk on new frame (from PreambleCorrelator)
+
   // -------- AXIS-like increments out: {I[15:0], Q[15:0]} --------------------
   output logic        out_valid,
   input  logic        out_ready,
@@ -238,6 +240,18 @@ module diff_decoder #(
     end
   end
 
+// edge detect frame_start 
+  logic fs_d;
+  always_ff @(posedge clk_bb or negedge rst_n) begin
+    if (!rst_n) begin
+      fs_d <= 1'b0;
+    end else begin
+      fs_d <= frame_start_i;
+    end
+  end
+
+  logic fs_rise = frame_start_i & ~fs_d;
+
   // Hold registers for one output beat and a latch of y[k] for prev update
   iq16_t hold_I;
   iq16_t hold_Q;
@@ -269,7 +283,7 @@ module diff_decoder #(
       st_running  <= 1'b0;
     end else begin
       // Local soft reset
-      if (ctrl_sw_reset) begin
+      if (ctrl_sw_reset || fs_rise) begin
         prev_I     <= ONE_Q15;
         prev_Q     <= 16'sd0;
         hold_valid <= 1'b0;
