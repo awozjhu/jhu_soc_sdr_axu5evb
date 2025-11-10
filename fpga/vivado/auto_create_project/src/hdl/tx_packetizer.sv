@@ -1,6 +1,7 @@
 module tx_packetizer #(
   parameter int DATA_WIDTH = 32,
-  parameter int MAX_FRAME_WORDS = 1024
+  parameter int MAX_FRAME_WORDS = 2112 // MAX_FRAME_WORDS sized for worst case BPSK: PREAMBLE_LEN=64 + PAYLOAD_BYTES(256)*8/K(1)=2048 → total 2112 (plus margin) to allow dynamic QPSK/BPSK
+
 )(
   input  logic                  clk,
   input  logic                  rst_n,
