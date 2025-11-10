@@ -38,7 +38,7 @@ module tb_full_chain_no_fec;
   logic [31:0] prbs_wdata;  logic [3:0]  prbs_wstrb; logic prbs_wvalid, prbs_wready;
   logic [1:0]  prbs_bresp;  logic prbs_bvalid, prbs_bready;
   logic [5:0]  prbs_araddr; logic prbs_arvalid, prbs_arready;
-  logic [31:0] prbs_rdata;  logic [1:0]  prbs_rresp; logic prbs_rvalid, prbs_rready;
+  logic [31:0] prbs_rdata;  logic [1:0]  prbs_rresp;  logic prbs_rvalid, prbs_rready;
 
   prbs_axi_stream #(.AXIL_ADDR_WIDTH(6), .AXIL_DATA_WIDTH(32)) u_prbs (
     .clk            (clk),
@@ -67,17 +67,14 @@ module tb_full_chain_no_fec;
   );
 
   // ------------------------------------------------------------
-  // TX: Mapper → Diff Encoder → Preamble Inserter
-  // (Scrambler removed)
+  // TX: Mapper ? Diff Encoder ? Preamble Inserter ? TX Packetizer
   // ------------------------------------------------------------
-
   // Mapper
   logic        map_in_valid, map_in_ready, map_in_last;
   logic [7:0]  map_in_data;
   logic        map_out_valid, map_out_ready, map_out_last;
   logic [31:0] map_out_data;
 
-  // PRBS → Mapper
   assign map_in_valid = prbs_tvalid;
   assign map_in_data  = prbs_tdata;
   assign map_in_last  = prbs_tlast;
@@ -88,21 +85,21 @@ module tb_full_chain_no_fec;
   logic [31:0] m_wdata;   logic [3:0]  m_wstrb; logic m_wvalid, m_wready;
   logic [1:0]  m_bresp;   logic m_bvalid, m_bready;
   logic [7:0]  m_araddr;  logic m_arvalid, m_arready;
-  logic [31:0] m_rdata;   logic [1:0]  m_rresp; logic m_rvalid, m_rready;
+  logic [31:0] m_rdata;   logic [1:0] m_rresp;  logic m_rvalid, m_rready;
 
   mapper u_mapper (
     .clk_bb(clk), .rst_n(rst_n),
-    .in_valid(map_in_valid), .in_ready(map_in_ready),
-    .in_data (map_in_data),  .in_last (map_in_last),
-    .out_valid(map_out_valid), .out_ready(map_out_ready),
-    .out_data (map_out_data),  .out_last (map_out_last),
-    .amc_mode_i(3'(USE_QPSK)), .amc_mode_valid_i(1'b0),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
+    .in_valid   (map_in_valid), .in_ready (map_in_ready),
+    .in_data    (map_in_data),  .in_last  (map_in_last),
+    .out_valid  (map_out_valid), .out_ready(map_out_ready),
+    .out_data   (map_out_data), .out_last (map_out_last),
+    .amc_mode_i (3'(USE_QPSK)), .amc_mode_valid_i(1'b0),
+    .s_axi_aclk (s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
     .s_axi_awaddr(m_awaddr), .s_axi_awvalid(m_awvalid), .s_axi_awready(m_awready),
     .s_axi_wdata (m_wdata),  .s_axi_wstrb(m_wstrb), .s_axi_wvalid(m_wvalid), .s_axi_wready(m_wready),
     .s_axi_bresp (m_bresp),  .s_axi_bvalid(m_bvalid), .s_axi_bready(m_bready),
     .s_axi_araddr(m_araddr), .s_axi_arvalid(m_arvalid), .s_axi_arready(m_arready),
-    .s_axi_rdata (m_rdata),  .s_axi_rresp(m_rresp), .s_axi_rvalid(m_rvalid), .s_axi_rready(m_rready)
+    .s_axi_rdata (m_rdata),  .s_axi_rresp (m_rresp),   .s_axi_rvalid(m_rvalid), .s_axi_rready(m_rready)
   );
 
   // Diff Encoder
@@ -115,25 +112,25 @@ module tb_full_chain_no_fec;
   assign de_in_last    = map_out_last;
   assign map_out_ready = de_in_ready;
 
-  // Diff Encoder AXI-Lite
+  // AXI-Lite (DE)
   logic [7:0]  de_awaddr;  logic de_awvalid, de_awready;
-  logic [31:0] de_wdata;   logic [3:0]  de_wstrb; logic de_wvalid, de_wready;
-  logic [1:0]  de_bresp;   logic de_bvalid, de_bready;
-  logic [7:0]  de_araddr;  logic de_arvalid, de_arready;
-  logic [31:0] de_rdata;   logic [1:0]  de_rresp; logic de_rvalid, de_rready;
+  logic [31:0] de_wdata;   logic [3:0]  de_wstrb;  logic de_wvalid, de_wready;
+  logic [1:0]  de_bresp;   logic        de_bvalid, de_bready;
+  logic [7:0]  de_araddr;  logic        de_arvalid, de_arready;
+  logic [31:0] de_rdata;   logic [1:0]  de_rresp;  logic de_rvalid,  de_rready;
 
   diff_encoder u_diff_enc (
-    .clk_bb(clk), .rst_n(rst_n),
-    .in_valid(de_in_valid), .in_ready(de_in_ready),
-    .in_data (de_in_data),  .in_last (de_in_last),
-    .out_valid(de_out_valid), .out_ready(de_out_ready),
-    .out_data (de_out_data),  .out_last (de_out_last),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
-    .s_axi_awaddr(de_awaddr), .s_axi_awvalid(de_awvalid), .s_axi_awready(de_awready),
-    .s_axi_wdata (de_wdata),  .s_axi_wstrb(de_wstrb), .s_axi_wvalid(de_wvalid), .s_axi_wready(de_wready),
-    .s_axi_bresp (de_bresp),  .s_axi_bvalid(de_bvalid), .s_axi_bready(de_bready),
-    .s_axi_araddr(de_araddr), .s_axi_arvalid(de_arvalid), .s_axi_arready(de_arready),
-    .s_axi_rdata (de_rdata),  .s_axi_rresp(de_rresp), .s_axi_rvalid(de_rvalid), .s_axi_rready(de_rready)
+    .clk_bb       (clk), .rst_n(rst_n),
+    .in_valid     (de_in_valid), .in_ready(de_in_ready),
+    .in_data      (de_in_data),  .in_last (de_in_last),
+    .out_valid    (de_out_valid), .out_ready(de_out_ready),
+    .out_data     (de_out_data),  .out_last (de_out_last),
+    .s_axi_aclk   (s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
+    .s_axi_awaddr (de_awaddr), .s_axi_awvalid(de_awvalid), .s_axi_awready(de_awready),
+    .s_axi_wdata  (de_wdata),  .s_axi_wstrb (de_wstrb), .s_axi_wvalid(de_wvalid), .s_axi_wready(de_wready),
+    .s_axi_bresp  (de_bresp),  .s_axi_bvalid(de_bvalid), .s_axi_bready(de_bready),
+    .s_axi_araddr (de_araddr), .s_axi_arvalid(de_arvalid), .s_axi_arready(de_arready),
+    .s_axi_rdata  (de_rdata),  .s_axi_rresp (de_rresp), .s_axi_rvalid (de_rvalid), .s_axi_rready(de_rready)
   );
 
   // Preamble Inserter (symbols)
@@ -143,26 +140,57 @@ module tb_full_chain_no_fec;
   PreambleInserter #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_preamble_ins (
     .aclk(clk), .aresetn(rst_n),
     .s_axis_tvalid(de_out_valid), .s_axis_tready(de_out_ready),
-    .s_axis_tdata(de_out_data),   .s_axis_tlast(de_out_last),
-    .m_axis_tvalid(pi_tvalid), .m_axis_tready(pi_tready),
-    .m_axis_tdata(pi_tdata),   .m_axis_tlast(pi_tlast)
+    .s_axis_tdata (de_out_data),  .s_axis_tlast (de_out_last),
+    .m_axis_tvalid(pi_tvalid),    .m_axis_tready(pi_tready),
+    .m_axis_tdata (pi_tdata),     .m_axis_tlast (pi_tlast)
+  );
+
+  // TX Packetizer
+  logic        pkt_tvalid, pkt_tready, pkt_tlast;
+  logic [31:0] pkt_tdata;
+
+  tx_packetizer u_tx_pkt (
+    .clk           (clk), .rst_n(rst_n),
+    .s_axis_tdata  (pi_tdata),
+    .s_axis_tvalid (pi_tvalid),
+    .s_axis_tready (pi_tready),
+    .s_axis_tlast  (pi_tlast), 
+    .m_axis_tdata  (pkt_tdata),
+    .m_axis_tvalid (pkt_tvalid),
+    .m_axis_tready (pkt_tready),
+    .m_axis_tlast  (pkt_tlast)
   );
 
   // ------------------------------------------------------------
-  // RX: Preamble Correlator → Diff Decoder → Slicer
-  // (NO packetizer/depacketizer; single correlator)
+  // RX: Depacketizer ? Preamble Correlator ? Diff Decoder ? Slicer
   // ------------------------------------------------------------
+  logic        dep_tvalid, dep_tready, dep_tlast;
+  logic [31:0] dep_tdata;
+
+  rx_depacketizer u_rx_depkt (
+    .clk           (clk), .rst_n(rst_n),
+    .s_axis_tdata  (pkt_tdata),
+    .s_axis_tvalid (pkt_tvalid),
+    .s_axis_tready (pkt_tready),
+    .s_axis_tlast  (pkt_tlast),
+    .m_axis_tdata  (dep_tdata),
+    .m_axis_tvalid (dep_tvalid),
+    .m_axis_tready (dep_tready),
+    .m_axis_tlast  (dep_tlast)
+  );
+
+  // Preamble Correlator
   logic        pc_tvalid, pc_tready, pc_tlast;
   logic [31:0] pc_tdata;
   logic        frame_start;
 
   PreambleCorrelator #(.PREAMBLE_LEN(PREAMBLE_LEN)) u_pcorr (
     .clk(clk), .rst_n(rst_n),
-    .s_axis_tvalid(pi_tvalid), .s_axis_tready(pi_tready),
-    .s_axis_tdata(pi_tdata),   .s_axis_tlast(pi_tlast),
-    .m_axis_tvalid(pc_tvalid), .m_axis_tready(pc_tready),
-    .m_axis_tdata(pc_tdata),   .m_axis_tlast(pc_tlast),
-    .frame_start(frame_start)
+    .s_axis_tvalid(dep_tvalid), .s_axis_tready(dep_tready),
+    .s_axis_tdata (dep_tdata),  .s_axis_tlast (dep_tlast),
+    .m_axis_tvalid(pc_tvalid),  .m_axis_tready(pc_tready),
+    .m_axis_tdata (pc_tdata),   .m_axis_tlast (pc_tlast),
+    .frame_start  (frame_start)
   );
 
   // Diff Decoder
@@ -176,26 +204,26 @@ module tb_full_chain_no_fec;
   assign dd_in_last  = pc_tlast;
   assign pc_tready   = dd_in_ready;
 
-  // Diff Decoder AXI-Lite
+  // AXI-Lite (DD)
   logic [7:0]  dd_awaddr;  logic dd_awvalid, dd_awready;
   logic [31:0] dd_wdata;   logic [3:0]  dd_wstrb; logic dd_wvalid, dd_wready;
   logic [1:0]  dd_bresp;   logic dd_bvalid, dd_bready;
   logic [7:0]  dd_araddr;  logic dd_arvalid, dd_arready;
-  logic [31:0] dd_rdata;   logic [1:0]  dd_rresp; logic dd_rvalid, dd_rready;
+  logic [31:0] dd_rdata;   logic [1:0]  dd_rresp;  logic dd_rvalid, dd_rready;
 
   diff_decoder u_diff_dec (
-    .clk_bb(clk), .rst_n(rst_n),
-    .in_valid(dd_in_valid), .in_ready(dd_in_ready),
-    .in_data (dd_in_data),  .in_last (dd_in_last),
+    .clk_bb       (clk), .rst_n(rst_n),
+    .in_valid     (dd_in_valid), .in_ready(dd_in_ready),
+    .in_data      (dd_in_data),  .in_last (dd_in_last),
     .frame_start_i(frame_start),
-    .out_valid(dd_out_valid), .out_ready(dd_out_ready),
-    .out_data (dd_out_data),  .out_last (dd_out_last),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
-    .s_axi_awaddr(dd_awaddr), .s_axi_awvalid(dd_awvalid), .s_axi_awready(dd_awready),
-    .s_axi_wdata (dd_wdata),  .s_axi_wstrb(dd_wstrb), .s_axi_wvalid(dd_wvalid), .s_axi_wready(dd_wready),
-    .s_axi_bresp (dd_bresp),  .s_axi_bvalid(dd_bvalid), .s_axi_bready(dd_bready),
-    .s_axi_araddr(dd_araddr), .s_axi_arvalid(dd_arvalid), .s_axi_arready(dd_arready),
-    .s_axi_rdata (dd_rdata),  .s_axi_rresp(dd_rresp), .s_axi_rvalid(dd_rvalid), .s_axi_rready(dd_rready)
+    .out_valid    (dd_out_valid), .out_ready(dd_out_ready),
+    .out_data     (dd_out_data),  .out_last (dd_out_last),
+    .s_axi_aclk   (s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
+    .s_axi_awaddr (dd_awaddr), .s_axi_awvalid(dd_awvalid), .s_axi_awready(dd_awready),
+    .s_axi_wdata  (dd_wdata),  .s_axi_wstrb(dd_wstrb), .s_axi_wvalid(dd_wvalid), .s_axi_wready(dd_wready),
+    .s_axi_bresp  (dd_bresp),  .s_axi_bvalid(dd_bvalid), .s_axi_bready(dd_bready),
+    .s_axi_araddr (dd_araddr), .s_axi_arvalid(dd_arvalid), .s_axi_arready(dd_arready),
+    .s_axi_rdata  (dd_rdata),  .s_axi_rresp (dd_rresp), .s_axi_rvalid(dd_rvalid), .s_axi_rready(dd_rready)
   );
 
   // Slicer
@@ -214,7 +242,7 @@ module tb_full_chain_no_fec;
   logic [31:0] sl_wdata;   logic [3:0]  sl_wstrb; logic sl_wvalid, sl_wready;
   logic [1:0]  sl_bresp;   logic sl_bvalid, sl_bready;
   logic [7:0]  sl_araddr;  logic sl_arvalid, sl_arready;
-  logic [31:0] sl_rdata;   logic [1:0]  sl_rresp; logic sl_rvalid, sl_rready;
+  // (read channel not used here)
 
   slicer u_slicer (
     .clk_bb(clk), .rst_n(rst_n),
@@ -222,82 +250,140 @@ module tb_full_chain_no_fec;
     .in_data (sl_in_data),  .in_last (sl_in_last),
     .out_valid(sl_out_valid), .out_ready(sl_out_ready),
     .out_data (sl_out_data),  .out_last (sl_out_last),
-    .amc_mode_i(3'(USE_QPSK)), .amc_mode_valid_i(1'b0),
-    .s_axi_aclk(s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
-    .s_axi_awaddr(sl_awaddr), .s_axi_awvalid(sl_awvalid), .s_axi_awready(sl_awready),
-    .s_axi_wdata (sl_wdata),  .s_axi_wstrb(sl_wstrb), .s_axi_wvalid(sl_wvalid), .s_axi_wready(sl_wready),
-    .s_axi_bresp (sl_bresp),  .s_axi_bvalid(sl_bvalid), .s_axi_bready(sl_bready),
-    .s_axi_araddr(sl_araddr), .s_axi_arvalid(sl_arvalid), .s_axi_arready(sl_arready),
-    .s_axi_rdata (sl_rdata),  .s_axi_rresp(sl_rresp),  .s_axi_rvalid(sl_rvalid), .s_axi_rready(sl_rready)
+    .amc_mode_i(3'(USE_QPSK)),
+    .s_axi_aclk   (s_axi_aclk), .s_axi_aresetn(s_axi_aresetn),
+    .s_axi_awaddr (sl_awaddr),  .s_axi_awvalid(sl_awvalid), .s_axi_awready(sl_awready),
+    .s_axi_wdata  (sl_wdata),   .s_axi_wstrb (sl_wstrb),    .s_axi_wvalid (sl_wvalid), .s_axi_wready (sl_wready),
+    .s_axi_bresp  (sl_bresp),   .s_axi_bvalid(sl_bvalid),   .s_axi_bready (sl_bready)
   );
 
-  // Free-run the sink for waves
+  // Free-run sink
   assign sl_out_ready = 1'b1;
 
   // ------------------------------------------------------------
-  // CSV logging (PRBS out & SLICER out)
+  // CSV logging: Packetizer IN, Packetizer OUT, Depacketizer OUT
+  // + PRBS packed as 32-bit words
   // ------------------------------------------------------------
-  integer f_prbs, f_slc;
-  int prbs_frame_idx = 0, prbs_beat_idx = 0;
-  int slc_frame_idx  = 0, slc_beat_idx  = 0;
+  integer f_pin, f_pout, f_dep;
+  int     pin_f, pin_b;
+  int     pout_f, pout_b;
+  int     dep_f,  dep_b;
 
-  // open files & headers
+  // PRBS→CSV (packed 4×8b → 32b)
+  integer    f_prbs;
+  int        prbs_f, prbs_b;
+  reg [31:0] prbs_word_accum;
+  reg  [1:0] prbs_byte_cnt;
+  reg        prbs_last_agg;
+  reg [31:0] prbs_next_word;
+  reg  [1:0] prbs_next_cnt;
+  reg        prbs_is_full;
+  reg        prbs_do_flush;
+  reg        prbs_last_now;
+
   initial begin
     wait (rst_n);
+    f_pin  = $fopen("pkt_in.csv","w");
+    f_pout = $fopen("pkt_out.csv","w");
+    f_dep  = $fopen("dep_out.csv","w");
     f_prbs = $fopen("prbs_out.csv","w");
-    f_slc  = $fopen("slicer_out.csv","w");
-    if (f_prbs == 0 || f_slc == 0) $fatal(1,"Failed to open CSV files.");
-    $fdisplay(f_prbs,"time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
-    $fdisplay(f_slc, "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+    if (f_pin == 0 || f_pout == 0 || f_dep == 0 || f_prbs == 0) $fatal(1,"Failed to open CSV output(s).");
+
+    $fdisplay(f_pin,  "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+    $fdisplay(f_pout, "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+    $fdisplay(f_dep,  "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+    $fdisplay(f_prbs, "time_ns,frame_idx,beat_idx,tvalid,tready,tlast,data_hex");
+
+    pin_f = 0; pin_b = 0;
+    pout_f = 0; pout_b = 0;
+    dep_f = 0;  dep_b = 0;
+
   end
 
-  // PRBS → Mapper (accepted bytes)
+  // TX Packetizer input (pi_* -> u_tx_pkt.s_axis_*)
   always @(posedge clk) begin
-    if (rst_n && prbs_tvalid && prbs_tready) begin
-      $fdisplay(f_prbs, "%0t,%0d,%0d,%0d,%0d,%0d,%02h",
-        $time, prbs_frame_idx, prbs_beat_idx,
-        prbs_tvalid, prbs_tready, prbs_tlast, prbs_tdata);
-      prbs_beat_idx++;
-      if (prbs_tlast) begin
-        prbs_frame_idx++;
-        prbs_beat_idx = 0;
+    if (rst_n && pi_tvalid && pi_tready) begin
+      $fdisplay(f_pin, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
+                $time, pin_f, pin_b, pi_tvalid, pi_tready, pi_tlast, pi_tdata);
+      pin_b++;
+      if (pi_tlast) begin
+        pin_f++;
+        pin_b = 0;
       end
     end
   end
 
-  // SLICER output (accepted bytes)
+  // TX Packetizer output
   always @(posedge clk) begin
-    if (rst_n && sl_out_valid && sl_out_ready) begin
-      $fdisplay(f_slc, "%0t,%0d,%0d,%0d,%0d,%0d,%02h",
-        $time, slc_frame_idx, slc_beat_idx,
-        sl_out_valid, sl_out_ready, sl_out_last, sl_out_data);
-      slc_beat_idx++;
-      if (sl_out_last) begin
-        slc_frame_idx++;
-        slc_beat_idx = 0;
+    if (rst_n && pkt_tvalid && pkt_tready) begin
+      $fdisplay(f_pout, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
+                $time, pout_f, pout_b, pkt_tvalid, pkt_tready, pkt_tlast, pkt_tdata);
+      pout_b++;
+      if (pkt_tlast) begin
+        pout_f++;
+        pout_b = 0;
       end
     end
   end
 
-  // close files on finish
-  final begin
-    if (f_prbs) $fclose(f_prbs);
-    if (f_slc)  $fclose(f_slc);
-    $display("Wrote prbs_out.csv and slicer_out.csv");
+  // RX Depacketizer output
+  always @(posedge clk) begin
+    if (rst_n && dep_tvalid && dep_tready) begin
+      $fdisplay(f_dep, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
+                $time, dep_f, dep_b, dep_tvalid, dep_tready, dep_tlast, dep_tdata);
+      dep_b++;
+      if (dep_tlast) begin
+        dep_f++;
+        dep_b = 0;
+      end
+    end
   end
 
-  // ------------------------------------------------------------
-  // REMOVED / COMMENTED OUT (kept for reference)
-  // ------------------------------------------------------------
-  // byte_scrambler u_scr_tx (/* removed */);
-  // tx_packetizer u_tx_pkt (/* removed for this run */);
-  // rx_depacketizer u_rx_depkt (/* removed for this run */);
-  // PreambleCorrelator u_pcorr1 (/* not used here */);
-  // byte_scrambler u_scr_rx (/* removed */);
-  // Frame gate / scoreboard / timeout blocks (removed)
+// PRBS: single driver, packs 4×8b->32b, flushes on 4th byte or TLAST
+always @(posedge clk or negedge rst_n) begin
+  if (!rst_n) begin
+    prbs_word_accum <= 32'h0;
+    prbs_byte_cnt   <= 2'd0;
+    prbs_last_agg   <= 1'b0;
+    prbs_f          <= 0;
+    prbs_b          <= 0;
+  end else begin
+    if (prbs_tvalid && prbs_tready) begin
+      // build next word including THIS byte
+      prbs_next_word                      = prbs_word_accum;
+      prbs_next_word[8*prbs_byte_cnt +:8] = prbs_tdata;
+
+      prbs_is_full  = (prbs_byte_cnt == 2'd3);
+      prbs_last_now = (prbs_last_agg | prbs_tlast);
+      prbs_do_flush = prbs_is_full | prbs_last_now;
+      prbs_next_cnt = prbs_is_full ? 2'd0 : (prbs_byte_cnt + 2'd1);
+
+      if (prbs_do_flush) begin
+        // emit packed word; mark TLAST if final byte is inside it
+        $fdisplay(f_prbs, "%0t,%0d,%0d,1,1,%0d,%08h",
+                  $time, prbs_f, prbs_b, prbs_last_now, prbs_next_word);
+        prbs_b          <= prbs_b + 1;
+        prbs_word_accum <= 32'h0;
+        prbs_byte_cnt   <= 2'd0;
+        prbs_last_agg   <= 1'b0;
+        if (prbs_last_now) begin
+          prbs_f <= prbs_f + 1;
+          prbs_b <= 0;
+        end
+      end else begin
+        // keep accumulating
+        prbs_word_accum <= prbs_next_word;
+        prbs_byte_cnt   <= prbs_next_cnt;
+        prbs_last_agg   <= prbs_last_now;
+      end
+    end
+  end
+end
+
+
 
   // ------------------------------------------------------------
-  // AXI-Lite write tasks (unchanged)
+  // AXI-Lite write tasks
   // ------------------------------------------------------------
   task automatic axil_write_mapper(input byte addr, input logic [31:0] data);
   begin
@@ -310,7 +396,9 @@ module tb_full_chain_no_fec;
     m_awvalid <= 1'b0;
     m_wvalid  <= 1'b0;
     do @(posedge s_axi_aclk); while (!m_bvalid);
-    m_bready <= 1'b1; @(posedge s_axi_aclk); m_bready <= 1'b0;
+    m_bready  <= 1'b1;  // FIX: use mapper bready
+    @(posedge s_axi_aclk);
+    m_bready  <= 1'b0;
   end
   endtask
 
@@ -361,26 +449,26 @@ module tb_full_chain_no_fec;
   endtask
 
   // ------------------------------------------------------------
-  // Init & simple programming (unchanged)
+  // Init & simple programming
   // ------------------------------------------------------------
   initial begin
-    // zero AXI-Lite drivers
+    // zero AXI-Lite strobes
     {m_awvalid,m_wvalid,m_bready,m_arvalid,m_rready} = '0;
     {de_awvalid,de_wvalid,de_bready,de_arvalid,de_rready} = '0;
     {dd_awvalid,dd_wvalid,dd_bready,dd_arvalid,dd_rready} = '0;
-    {sl_awvalid,sl_wvalid,sl_bready,sl_arvalid,sl_rready} = '0;
+    {sl_awvalid,sl_wvalid,sl_bready,sl_arvalid} = '0;
     {prbs_awvalid,prbs_wvalid,prbs_bready,prbs_arvalid,prbs_rready} = '0;
 
-    m_awaddr=0; m_wdata=0; m_wstrb=0;
-    de_awaddr=0; de_wdata=0; dd_wstrb=0; // note: de_wstrb assigned above; harmless here
-    dd_awaddr=0; dd_wdata=0; dd_wstrb=0;
-    sl_awaddr=0; sl_wdata=0; sl_wstrb=0;
-    prbs_awaddr=0; prbs_wdata=0; prbs_wstrb=0;
+    m_awaddr=0; m_wdata=0; m_wstrb=0; m_araddr=0;
+    de_awaddr=0; de_wdata=0; de_wstrb=0; de_araddr=0;
+    dd_awaddr=0; dd_wdata=0; dd_wstrb=0; dd_araddr=0;
+    sl_awaddr=0; sl_wdata=0; sl_wstrb=0; sl_araddr=0;
+    prbs_awaddr=0; prbs_wdata=0; prbs_wstrb=0; prbs_araddr=0;
 
     wait (s_axi_aresetn); @(posedge s_axi_aclk);
 
     // Mapper: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1
-    axil_write_mapper(8'h00, 32'h0000_0131);
+    axil_write_mapper(8'h00, 32'h0000_0130 | 32'h1);
 
     // Diff Enc/Dec: ENABLE=1, MODE=DQPSK(1)
     axil_write_de(8'h00, 32'h0000_0031);
@@ -392,9 +480,19 @@ module tb_full_chain_no_fec;
     // PRBS: SEED, FRAME_LEN, then CTRL (ENABLE=1 | SW_RESET=1 | MODE=PRBS31)
     axil_write_prbs(8'h08, 32'h0000_0001);
     axil_write_prbs(8'h0C, {16'd0, PAYLOAD_BYTES[15:0]});
-    axil_write_prbs(8'h00, 32'h0000_0031);
+    axil_write_prbs(8'h00,  32'h0000_0031);
   end
 
-  // No self-checking; stop the sim whenever you’re done inspecting waves.
+  // ------------------------------------------------------------
+  // Done / close files
+  // ------------------------------------------------------------
+  final begin
+    if (f_pin)  $fclose(f_pin);
+    if (f_pout) $fclose(f_pout);
+    if (f_dep)  $fclose(f_dep);
+    if (f_prbs) $fclose(f_prbs);
+    $display("Wrote prbs_out.csv");
+    $display("Wrote pkt_in.csv, pkt_out.csv, dep_out.csv");
+  end
 
 endmodule
