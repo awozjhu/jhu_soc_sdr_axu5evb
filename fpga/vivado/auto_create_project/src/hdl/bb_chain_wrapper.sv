@@ -10,7 +10,7 @@ module bb_chain_wrapper_no_fec #(
   input  wire        clk_tx,     // tx baseband clock (use tx0_clk)
   input  wire        clk_rx,     // rx baseband clock (use rx0_clk)
   input  wire        rst_tx_n,   // active-low synchronous reset for tx datapath
-  input  wire        rst_tx_n,   // active-low synchronous reset for rx datapath
+  input  wire        rst_rx_n,   // active-low synchronous reset for rx datapath
 
   // ------------------------------------------------------------
   // TX side: output of tx_packetizer (to hook to packet_send)
