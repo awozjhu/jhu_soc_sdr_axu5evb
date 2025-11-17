@@ -7,6 +7,9 @@ module tb_bb_chain_wrapper_no_fec;
   // ------------------------------------------------------------
   localparam real CLK_PERIOD_NS = 4.0; // 250 MHz
 
+  localparam int FRAME_WORDS = 1150; // words per frame in test
+//   localparam int FRAME_WORDS = 1092; // words per frame in test
+
   logic clk = 0;
   always #(CLK_PERIOD_NS/2.0) clk = ~clk;
 
@@ -82,6 +85,23 @@ module tb_bb_chain_wrapper_no_fec;
     .rx_byte_tready   (rx_byte_tready)
   );
 
+int frame_word_count = 0;
+
+always @(posedge clk) begin
+  if (!rst_n) begin
+    frame_word_count <= 0;
+  end else if (tx_pkt_tvalid && tx_pkt_tready) begin
+    frame_word_count <= frame_word_count + 1;
+    if (tx_pkt_tlast) begin
+      $display("[%0t] Frame length = %0d words",
+               $time, frame_word_count + 1);
+      frame_word_count <= 0;
+    end
+  end
+end
+
+// assign tx_pkt_tready = 1'b1; // always ready to accept packets
+
   // ------------------------------------------------------------
   // packet_send instantiation (TX side)
   // ------------------------------------------------------------
@@ -93,7 +113,7 @@ module tb_bb_chain_wrapper_no_fec;
     .rst              (~rst_n),          // active-high reset
     .tx_clk           (clk),
     .tx_packet_req    (1'b1),            // always request packets in TB
-    .tx_packet_len    (16'd64),          // payload length for test
+    .tx_packet_len    (FRAME_WORDS[15:0]),          // payload length for test
     .tx_packet_done   (tx_packet_done),
     .tx_packet_type   (8'h01),
 
@@ -142,7 +162,8 @@ module tb_bb_chain_wrapper_no_fec;
   assign rx_sym_tdata   = pr_m_axis_tdata;
   assign rx_sym_tvalid  = pr_m_axis_tvalid;
   assign rx_sym_tlast   = pr_m_axis_tlast;
-  assign pr_m_axis_tready = rx_sym_tready;  // backpressure from wrapper
+//   assign pr_m_axis_tready = rx_sym_tready;  // backpressure from wrapper
+  assign pr_m_axis_tready = 1'b1;  
 
   // Always ready to consume slicer output in this TB
   assign rx_byte_tready = 1'b1;
@@ -161,15 +182,15 @@ module tb_bb_chain_wrapper_no_fec;
   end
 
   // Print a few PRBS bytes and recovered bytes to the console
-  always @(posedge clk) begin
-    if (rst_n && prbs_mon_tvalid) begin
-      $display("[%0t] PRBS  : %02x (last=%0b)",
-               $time, prbs_mon_tdata, prbs_mon_tlast);
-    end
-    if (rst_n && rx_byte_tvalid) begin
-      $display("[%0t] SLICER: %02x (last=%0b)",
-               $time, rx_byte_tdata, rx_byte_tlast);
-    end
-  end
+//   always @(posedge clk) begin
+//     if (rst_n && prbs_mon_tvalid) begin
+//       $display("[%0t] PRBS  : %02x (last=%0b)",
+//                $time, prbs_mon_tdata, prbs_mon_tlast);
+//     end
+//     if (rst_n && rx_byte_tvalid) begin
+//       $display("[%0t] SLICER: %02x (last=%0b)",
+//                $time, rx_byte_tdata, rx_byte_tlast);
+//     end
+//   end
 
 endmodule

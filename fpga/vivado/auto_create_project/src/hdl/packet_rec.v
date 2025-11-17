@@ -151,6 +151,7 @@ always @(posedge rx_clk or posedge rst) begin
                         if (data_cnt == packet_len - 1) begin
                             // last payload word
                             m_axis_tlast_r <= 1'b1;
+                            m_axis_tvalid_r <= 1'b0;
                             data_cnt       <= 16'd0;
                             state          <= CHECK;
                         end else begin
