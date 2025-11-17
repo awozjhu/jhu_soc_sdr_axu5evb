@@ -131,13 +131,15 @@ module prbs_axi_stream #(
   // -----------------------------
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      ctrl_enable          <= 1'b0;
+      // ctrl_enable          <= 1'b0;
+      ctrl_enable          <= 1'b1;           // hard code no axi sw
       ctrl_mode            <= 3'd3;          // PRBS31 default
       sw_reset_pulse       <= 1'b0;
       clear_pulse          <= 1'b0;
 
       csr_seed             <= 31'd1;         // non-zero default
-      csr_frame_len_bytes  <= 16'd0;         // continuous by default
+      // csr_frame_len_bytes  <= 16'd0;         // continuous by default
+      csr_frame_len_bytes  <= 16'd256;         // hard code no axi sw
 
       st_running           <= 1'b0;
       st_diag_ovun         <= 1'b0;
@@ -150,20 +152,20 @@ module prbs_axi_stream #(
       // WRITE decode
       if (aw_hs & w_hs) begin
         unique case (s_axil_awaddr[5:0])
-          CTRL_ADDR: begin
-            if (s_axil_wstrb[0]) begin
-              ctrl_enable <= s_axil_wdata[0];
-              if (s_axil_wdata[2]) sw_reset_pulse <= 1'b1;          // SW_RESET one-shot
-              ctrl_mode   <= s_axil_wdata[6:4];
-              if (s_axil_wdata[15]) clear_pulse <= 1'b1;            // CLEAR one-shot
-            end
-          end
-          SEED_ADDR: begin
-            csr_seed <= s_axil_wdata[30:0];                          // zero coerced later
-          end
-          FRMLEN_ADDR: begin
-            if (s_axil_wstrb[1] | s_axil_wstrb[0]) csr_frame_len_bytes <= s_axil_wdata[15:0];
-          end
+          // CTRL_ADDR: begin
+          //   // if (s_axil_wstrb[0]) begin
+          //   //   ctrl_enable <= s_axil_wdata[0];
+          //   //   if (s_axil_wdata[2]) sw_reset_pulse <= 1'b1;          // SW_RESET one-shot
+          //   //   ctrl_mode   <= s_axil_wdata[6:4];
+          //   //   if (s_axil_wdata[15]) clear_pulse <= 1'b1;            // CLEAR one-shot
+          //   // end
+          // end
+          // SEED_ADDR: begin
+          //   // csr_seed <= s_axil_wdata[30:0];                          // zero coerced later                        
+          // end
+          // FRMLEN_ADDR: begin
+          //   // if (s_axil_wstrb[1] | s_axil_wstrb[0]) csr_frame_len_bytes <= s_axil_wdata[15:0];
+          // end
           STATUS_ADDR: begin
             // R/W1C: writing '1' clears the sticky bit(s)
             if (s_axil_wstrb[0]) begin

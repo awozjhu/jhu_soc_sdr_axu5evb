@@ -60,73 +60,11 @@ module tb_full_chain_no_fec;
     .s_axil_rresp   (prbs_rresp),
     .s_axil_rvalid  (prbs_rvalid),
     .s_axil_rready  (prbs_rready),
-
     .m_axis_tdata   (prbs_tdata),
     .m_axis_tvalid  (prbs_tvalid),
     .m_axis_tready  (prbs_tready),
     .m_axis_tlast   (prbs_tlast)
   );
-
-
-// ------------------------------------------------------------
-// Byte Scrambler (after PRBS, before Mapper)
-// ------------------------------------------------------------
-// Status
-// Stream in (8b)
-logic        [7:0]  scram_in_data;
-logic               scram_in_valid;
-logic               scram_in_tlast;
-logic               scram_in_ready;
-
-// Stream out (8b)
-logic        [7:0]  scram_out_data;
-logic               scram_out_valid;
-logic               scram_out_tlast;
-logic               scram_out_ready;
-
-// Control
-logic               scram_enable;     // 1 = active
-logic               scram_running_pulse;     
-logic               scram_bypass;     // 1 = pass-through (LFSR frozen)
-
-// Example tie-offs (edit as needed)
-assign scram_enable    = 1'b1;
-assign scram_bypass    = 1'b1;
-
-// PRBS --> scrambler
-assign scram_in_data  = prbs_tdata;
-assign scram_in_valid = prbs_tvalid;
-assign scram_in_tlast = prbs_tlast;
-assign prbs_tready    = scram_in_ready;   // scrambler drives scram_in_ready
-
-// ---------- Instantiation ----------
-byte_scrambler #(
-  .LFSR_W   (7),
-  .TAP_MASK (7'b1001000) // x^7 + x^4 + 1
-) u_scrambler (
-  .clk          (clk),
-  .rst_n        (rst_n),
-
-  // stream in
-  .in_data      (scram_in_data),
-  .in_valid     (scram_in_valid),
-  .in_tlast     (scram_in_tlast),
-  .in_ready     (scram_in_ready),
-
-  // stream out
-  .out_data     (scram_out_data),
-  .out_valid    (scram_out_valid),
-  .out_tlast    (scram_out_tlast),
-  .out_ready    (scram_out_ready),
-
-  // control
-  .cfg_enable   (scram_enable),
-  .cfg_bypass   (scram_bypass),
-
-  // status
-  .running_pulse(scram_running_pulse)
-);
-
 
   // ------------------------------------------------------------
   // TX: Mapper ? Diff Encoder ? Preamble Inserter ? TX Packetizer
@@ -137,16 +75,10 @@ byte_scrambler #(
   logic        map_out_valid, map_out_ready, map_out_last;
   logic [31:0] map_out_data;
 
-//   assign map_in_valid = prbs_tvalid;
-//   assign map_in_data  = prbs_tdata;
-//   assign map_in_last  = prbs_tlast;
-//   assign prbs_tready  = map_in_ready;
-// scrambler --> mapper 
-assign map_in_valid   = scram_out_valid;
-assign map_in_data    = scram_out_data;
-assign map_in_last    = scram_out_tlast;
-assign scram_out_ready = map_in_ready;
-
+  assign map_in_valid = prbs_tvalid;
+  assign map_in_data  = prbs_tdata;
+  assign map_in_last  = prbs_tlast;
+  assign prbs_tready  = map_in_ready;
 
   // Mapper AXI-Lite (8-bit addr)
   logic [7:0]  m_awaddr;  logic m_awvalid, m_awready;
@@ -325,68 +257,8 @@ assign scram_out_ready = map_in_ready;
     .s_axi_bresp  (sl_bresp),   .s_axi_bvalid(sl_bvalid),   .s_axi_bready (sl_bready)
   );
 
-// ------------------------------------------------------------
-// Byte (De)Scrambler (after Slicer, before PRBS checker)
-// ------------------------------------------------------------
-// Status
-// Stream in (8b)
-logic        [7:0]  descram_in_data;
-logic               descram_in_valid;
-logic               descram_in_tlast;
-logic               descram_in_ready;
-
-// Stream out (8b)
-logic        [7:0]  descram_out_data;
-logic               descram_out_valid;
-logic               descram_out_tlast;
-logic               descram_out_ready;
-
-// Control/Status
-logic               descram_enable;     // 1 = active
-logic               descram_running_pulse;     // 1 = active
-logic               descram_bypass;     // 1 = pass-through (LFSR frozen)
-
-// Free-run sink
-//   assign sl_out_ready = 1'b1;
-
-// slicer → descrambler
-assign descram_in_data  = sl_out_data;
-assign descram_in_valid = sl_out_valid;
-assign descram_in_tlast = sl_out_last;
-assign sl_out_ready     = descram_in_ready;  // descrambler drives descram_in_ready
-
-// Example tie-offs (edit as needed)
-assign descram_out_ready = 1'b1;      // free-run sink by default
-assign descram_enable    = 1'b1;
-assign descram_bypass    = 1'b1;
-
-// ---------- Instantiation ----------
-byte_scrambler #(
-  .LFSR_W   (7),
-  .TAP_MASK (7'b1001000) // x^7 + x^4 + 1
-) u_descrambler (
-  .clk          (clk),
-  .rst_n        (rst_n),
-
-  // stream in
-  .in_data      (descram_in_data),
-  .in_valid     (descram_in_valid),
-  .in_tlast     (descram_in_tlast),
-  .in_ready     (descram_in_ready),
-
-  // stream out
-  .out_data     (descram_out_data),
-  .out_valid    (descram_out_valid),
-  .out_tlast    (descram_out_tlast),
-  .out_ready    (descram_out_ready),
-
-  // control
-  .cfg_enable   (descram_enable),
-  .cfg_bypass   (descram_bypass),
-
-  // status
-  .running_pulse(descram_running_pulse)
-);
+  // Free-run sink
+  assign sl_out_ready = 1'b1;
 
   // ------------------------------------------------------------
   // CSV logging: Packetizer IN, Packetizer OUT, Depacketizer OUT

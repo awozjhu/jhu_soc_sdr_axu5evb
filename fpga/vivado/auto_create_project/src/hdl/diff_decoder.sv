@@ -98,7 +98,8 @@ module diff_decoder #(
       s_axi_rdata     <= 32'h0;
       araddr_hold     <= 8'h00;
 
-      ctrl_enable     <= 1'b0;
+      // ctrl_enable     <= 1'b0; // hard code to enable no axi control
+      ctrl_enable     <= 1'b1;
       ctrl_sw_reset   <= 1'b0;
       ctrl_mode       <= 3'd1;   // default DQPSK
 
@@ -110,13 +111,13 @@ module diff_decoder #(
 
       if (do_write) begin
         unique case (awaddr_hold[7:2])
-          6'h00: begin // CTRL
-            if (s_axi_wstrb[0]) begin
-              ctrl_enable   <= s_axi_wdata[0];
-              ctrl_sw_reset <= s_axi_wdata[2];  // self-clears below
-              ctrl_mode     <= s_axi_wdata[6:4];
-            end
-          end
+          // 6'h00: begin // CTRL
+          //   if (s_axi_wstrb[0]) begin
+          //     ctrl_enable   <= s_axi_wdata[0];
+          //     ctrl_sw_reset <= s_axi_wdata[2];  // self-clears below
+          //     ctrl_mode     <= s_axi_wdata[6:4];
+          //   end
+          // end
           6'h01: begin // STATUS R/W1C
             if (s_axi_wstrb[0]) begin
               if (s_axi_wdata[0]) st_running <= 1'b0;

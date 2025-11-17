@@ -183,7 +183,8 @@ module mapper #(
       araddr_hold     <= 8'h00;
 
       // CTRL defaults
-      ctrl_enable       <= 1'b0;
+      // ctrl_enable       <= 1'b0;
+      ctrl_enable       <= 1'b1; // hard code no axi control
       ctrl_bypass       <= 1'b0;
       ctrl_sw_reset     <= 1'b0;
       ctrl_mode         <= 3'd1;   // default QPSK
@@ -199,15 +200,15 @@ module mapper #(
 
       if (do_write) begin
         unique case (awaddr_hold[7:2]) // word aligned
-          6'h00: begin // CTRL
-            if (s_axi_wstrb[0]) begin
-              ctrl_enable       <= s_axi_wdata[0];
-              ctrl_bypass       <= s_axi_wdata[1];
-              ctrl_sw_reset     <= s_axi_wdata[2];  // one-shot below
-              ctrl_mode         <= s_axi_wdata[6:4];
-              ctrl_amc_override <= s_axi_wdata[8];
-            end
-          end
+          // 6'h00: begin // CTRL
+          //   if (s_axi_wstrb[0]) begin
+          //     ctrl_enable       <= s_axi_wdata[0];
+          //     ctrl_bypass       <= s_axi_wdata[1];
+          //     ctrl_sw_reset     <= s_axi_wdata[2];  // one-shot below
+          //     ctrl_mode         <= s_axi_wdata[6:4];
+          //     ctrl_amc_override <= s_axi_wdata[8];
+          //   end
+          // end
           6'h01: begin // STATUS R/W1C
             if (s_axi_wstrb[0]) begin
               if (s_axi_wdata[0]) st_running  <= 1'b0;
