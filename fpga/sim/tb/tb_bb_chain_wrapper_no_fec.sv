@@ -33,7 +33,7 @@ module tb_bb_chain_wrapper_no_fec;
   wire        prbs_mon_tlast;
   wire        prbs_mon_tready; // output from DUT
 
-  // RX side input into wrapper (loopback from TX)
+  // RX side input into wrapper (from packet_rec)
   wire [31:0] rx_sym_tdata;
   wire        rx_sym_tvalid;
   wire        rx_sym_tlast;
@@ -46,7 +46,7 @@ module tb_bb_chain_wrapper_no_fec;
   wire        rx_byte_tready;
 
   // ------------------------------------------------------------
-  // DUT instantiation: baseband wrapper
+  // Baseband wrapper instantiation
   // ------------------------------------------------------------
   bb_chain_wrapper_no_fec #(
     .PREAMBLE_LEN (64),
@@ -57,7 +57,7 @@ module tb_bb_chain_wrapper_no_fec;
     .rst_tx_n         (rst_n),
     .rst_rx_n         (rst_n),
 
-    // TX out (to "packet_send" in real design)
+    // TX out (to packet_send)
     .tx_pkt_tdata     (tx_pkt_tdata),
     .tx_pkt_tvalid    (tx_pkt_tvalid),
     .tx_pkt_tready    (tx_pkt_tready),
@@ -69,7 +69,7 @@ module tb_bb_chain_wrapper_no_fec;
     .prbs_mon_tlast   (prbs_mon_tlast),
     .prbs_mon_tready  (prbs_mon_tready),
 
-    // RX symbols in (looped from TX below)
+    // RX symbols in (from packet_rec)
     .rx_sym_tdata     (rx_sym_tdata),
     .rx_sym_tvalid    (rx_sym_tvalid),
     .rx_sym_tready    (rx_sym_tready),
@@ -83,9 +83,8 @@ module tb_bb_chain_wrapper_no_fec;
   );
 
   // ------------------------------------------------------------
-  // Instantiate packet_send and hook it to the wrapper TX
+  // packet_send instantiation (TX side)
   // ------------------------------------------------------------
-  // packet_send outputs (we'll just watch them / ignore for RX)
   wire [31:0] ps_gt_tx_data;
   wire [3:0]  ps_gt_tx_ctrl;
   wire        tx_packet_done;
@@ -93,31 +92,57 @@ module tb_bb_chain_wrapper_no_fec;
   packet_send u_packet_send (
     .rst              (~rst_n),          // active-high reset
     .tx_clk           (clk),
-    .tx_packet_req    (1'b1),           // always request packets in TB
-    .tx_packet_len    (16'd64),         // arbitrary payload length for test
+    .tx_packet_req    (1'b1),            // always request packets in TB
+    .tx_packet_len    (16'd64),          // payload length for test
     .tx_packet_done   (tx_packet_done),
     .tx_packet_type   (8'h01),
 
     // Drive from wrapper packetizer
     .tx_packet_data   (tx_pkt_tdata),
-    .tx_packet_data_rd(tx_pkt_tready),  // this is tready back into wrapper
+    .tx_packet_data_rd(tx_pkt_tready),   // tready back into wrapper
 
     .gt_tx_data       (ps_gt_tx_data),
     .gt_tx_ctrl       (ps_gt_tx_ctrl)
   );
 
   // ------------------------------------------------------------
-  // Simple loopback: wrapper TX packet stream -> wrapper RX symbols
-  // (This ignores packet_send's headers; the goal here is
-  //  just to verify the baseband wrapper and packet_send
-  //  handshake, not their combined frame format.)
+  // packet_rec instantiation (RX side)
   // ------------------------------------------------------------
-  assign rx_sym_tdata  = tx_pkt_tdata;
-  assign rx_sym_tvalid = tx_pkt_tvalid;
-  assign rx_sym_tlast  = tx_pkt_tlast;
+  wire [31:0] rx_data_align;
+  wire [3:0]  rx_ctrl_align;
+  wire [31:0] packet_cnt_o;
+  wire [31:0] error_packet_cnt_o;
 
-  // RX side always ready
-//   assign rx_sym_tready  = 1'b1; // erorr this is an output from DUT
+  // AXIS payload out of packet_rec
+  wire [31:0] pr_m_axis_tdata;
+  wire        pr_m_axis_tvalid;
+  wire        pr_m_axis_tready;
+  wire        pr_m_axis_tlast;
+
+  packet_rec u_packet_rec (
+    .rst                 (~rst_n),
+    .rx_clk              (clk),
+    .rx_data             (ps_gt_tx_data),
+    .rx_ctrl             (ps_gt_tx_ctrl),
+    .rx_data_align       (rx_data_align),
+    .rx_ctrl_align       (rx_ctrl_align),
+    .packet_cnt_o        (packet_cnt_o),
+    .error_packet_cnt_o  (error_packet_cnt_o),
+
+    // AXI-Stream-style payload output
+    .m_axis_tdata        (pr_m_axis_tdata),
+    .m_axis_tvalid       (pr_m_axis_tvalid),
+    .m_axis_tready       (pr_m_axis_tready),
+    .m_axis_tlast        (pr_m_axis_tlast)
+  );
+
+  // ------------------------------------------------------------
+  // Connect packet_rec payload AXIS into wrapper RX AXIS
+  // ------------------------------------------------------------
+  assign rx_sym_tdata   = pr_m_axis_tdata;
+  assign rx_sym_tvalid  = pr_m_axis_tvalid;
+  assign rx_sym_tlast   = pr_m_axis_tlast;
+  assign pr_m_axis_tready = rx_sym_tready;  // backpressure from wrapper
 
   // Always ready to consume slicer output in this TB
   assign rx_byte_tready = 1'b1;
