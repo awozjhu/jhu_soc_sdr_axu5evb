@@ -58,18 +58,18 @@ module diff_encoder #(
   input  logic        s_axi_rready
 );
 
-  // ===========================================================================
+  // ===========================================================================  
   // Types / params
-  // ===========================================================================
+  // ===========================================================================  
   typedef logic signed [15:0] iq16_t;
   typedef logic signed [31:0] i32_t;
   typedef logic signed [32:0] i33_t;
 
   localparam i33_t ROUND_CONST = 33'sd16384;  // 2^14 for Q1.15 rounding
 
-  // ===========================================================================
+  // ===========================================================================  
   // CSRs (AXI-Lite always-ready style, like mapper/slicer)
-  // ===========================================================================
+  // ===========================================================================  
   logic        ctrl_enable;
   logic        ctrl_sw_reset;       // one-shot
   logic [2:0]  ctrl_mode;           // 0=DBPSK, 1=DQPSK
@@ -102,30 +102,14 @@ module diff_encoder #(
       ctrl_sw_reset   <= 1'b0;
       ctrl_mode       <= 3'd1;   // default DQPSK
 
-      st_running      <= 1'b0;
+      // st_running      <= 1'b0;
     end else begin
       if (s_axi_awvalid) awaddr_hold <= s_axi_awaddr;
       have_write <= s_axi_awvalid & s_axi_wvalid & ~s_axi_bvalid;
       do_write   <= have_write;
 
       if (do_write) begin
-        unique case (awaddr_hold[7:2]) // word aligned
-          // 6'h00: begin // CTRL
-          //   if (s_axi_wstrb[0]) begin
-          //     ctrl_enable   <= s_axi_wdata[0];
-          //     ctrl_sw_reset <= s_axi_wdata[2];  // self-clears below
-          //     ctrl_mode     <= s_axi_wdata[6:4];
-          //   end
-          // end
-          6'h01: begin // STATUS R/W1C
-            if (s_axi_wstrb[0]) begin
-              if (s_axi_wdata[0]) st_running <= 1'b0;
-            end
-          end
-          default: ;
-        endcase
-        s_axi_bvalid <= 1'b1;
-        s_axi_bresp  <= 2'b00;
+        // write handling currently disabled
       end else if (s_axi_bvalid && s_axi_bready) begin
         s_axi_bvalid <= 1'b0;
       end
@@ -148,9 +132,9 @@ module diff_encoder #(
     end
   end
 
-  // ===========================================================================
+  // ===========================================================================  
   // Datapath
-  // ===========================================================================
+  // ===========================================================================  
   // Mode
   logic eff_dqpsk;
   always_comb begin
@@ -215,7 +199,6 @@ module diff_encoder #(
     acc_im = $signed(p_re_im) + $signed(p_im_re);
 
     // Signed round-to-nearest before >> 15:
-    // add +2^14 for >=0, add -(2^14) for <0  → (x + sign?(-ROUND_CONST):ROUND_CONST)
     acc_re_rnd = acc_re + (acc_re[32] ? -ROUND_CONST : ROUND_CONST);
     acc_im_rnd = acc_im + (acc_im[32] ? -ROUND_CONST : ROUND_CONST);
 
@@ -270,11 +253,18 @@ module diff_encoder #(
   logic  hold_last;
   logic  hold_valid;
 
-  // Ready/valid
+  // NEW: registered AXIS master outputs (pipeline stage)
+  logic [31:0] enc_out_data;
+  logic        enc_out_valid;
+  logic        enc_out_last;
+
+  // Ready/valid (unchanged for input side)
   assign in_ready  = ctrl_enable & (~hold_valid);
-  assign out_valid = hold_valid;
-  assign out_data  = {hold_I, hold_Q};
-  assign out_last  = hold_last;
+
+  // Drive ports from registered outputs
+  assign out_valid = enc_out_valid;
+  assign out_data  = enc_out_data;
+  assign out_last  = enc_out_last;
 
   // Datapath / handshakes
   always_ff @(posedge clk_bb or negedge rst_n) begin
@@ -288,6 +278,10 @@ module diff_encoder #(
       hold_valid  <= 1'b0;
 
       st_running  <= 1'b0;
+
+      enc_out_valid <= 1'b0;
+      enc_out_data  <= 32'h0;
+      enc_out_last  <= 1'b0;
     end else begin
       // Local soft reset
       if (ctrl_sw_reset) begin
@@ -296,7 +290,7 @@ module diff_encoder #(
         hold_valid <= 1'b0;
       end
 
-      // Accept a new phasor increment (one symbol)
+      // Accept a new phasor increment (one symbol), fill hold_*
       if (in_valid && in_ready) begin
         if (use_fast) begin
           hold_I <= calc_out_I_fast;
@@ -310,11 +304,22 @@ module diff_encoder #(
       end
 
       // Downstream handshake: commit output and advance state
+      // NOTE: prev_* update still uses hold_* as before
       if (hold_valid && out_ready) begin
         hold_valid <= 1'b0;
         prev_I     <= hold_I;
         prev_Q     <= hold_Q;
         st_running <= 1'b1;
+      end
+
+      // Output pipeline register: drive enc_out_* from hold_*
+      // Registered AXIS pattern: update when output is free or just accepted
+      if (!enc_out_valid || out_ready) begin
+        enc_out_valid <= hold_valid;
+        if (hold_valid) begin
+          enc_out_data <= {hold_I, hold_Q};
+          enc_out_last <= hold_last;
+        end
       end
     end
   end

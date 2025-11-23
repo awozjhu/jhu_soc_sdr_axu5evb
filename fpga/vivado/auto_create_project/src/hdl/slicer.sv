@@ -111,16 +111,16 @@ module slicer #(
       ctrl_mode         <= 3'd1;   // default QPSK
       ctrl_amc_override <= 1'b1;   // default: use local MODE
 
-      st_running        <= 1'b0;
-      st_overflow       <= 1'b0;
-      byte_count        <= {BYTE_COUNT_W{1'b0}};
+      // st_running        <= 1'b0;
+      // st_overflow       <= 1'b0;
+      // byte_count        <= {BYTE_COUNT_W{1'b0}};
     end else begin
       if (s_axi_awvalid) awaddr_hold <= s_axi_awaddr;
       have_write <= s_axi_awvalid & s_axi_wvalid & ~s_axi_bvalid;
       do_write   <= have_write;  // 1-cycle pulse
 
       if (do_write) begin
-        unique case (awaddr_hold[7:2]) // word aligned
+        // unique case (awaddr_hold[7:2]) // word aligned
           // 6'h00: begin // CTRL
           //   if (s_axi_wstrb[0]) begin
           //     ctrl_enable       <= s_axi_wdata[0];
@@ -130,19 +130,19 @@ module slicer #(
           //     ctrl_amc_override <= s_axi_wdata[8];
           //   end
           // end
-          6'h01: begin // STATUS R/W1C
-            if (s_axi_wstrb[0]) begin
-              if (s_axi_wdata[0]) st_running  <= 1'b0;
-              if (s_axi_wdata[2]) st_overflow <= 1'b0;
-            end
-          end
-          6'h06: begin // RESULT0 (optional clear-on-write)
-            if (s_axi_wstrb != 4'b0000) byte_count <= {BYTE_COUNT_W{1'b0}};
-          end
-          default: ;
-        endcase
-        s_axi_bvalid <= 1'b1;
-        s_axi_bresp  <= 2'b00;
+          // 6'h01: begin // STATUS R/W1C
+          //   if (s_axi_wstrb[0]) begin
+          //     if (s_axi_wdata[0]) st_running  <= 1'b0;
+          //     if (s_axi_wdata[2]) st_overflow <= 1'b0;
+          //   end
+          // end
+        //   6'h06: begin // RESULT0 (optional clear-on-write)
+        //     if (s_axi_wstrb != 4'b0000) byte_count <= {BYTE_COUNT_W{1'b0}};
+        //   end
+        //   default: ;
+        // endcase
+        // s_axi_bvalid <= 1'b1;
+        // s_axi_bresp  <= 2'b00;
       end else if (s_axi_bvalid && s_axi_bready) begin
         s_axi_bvalid <= 1'b0;
       end

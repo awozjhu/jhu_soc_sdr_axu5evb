@@ -190,8 +190,8 @@ module mapper #(
       ctrl_mode         <= 3'd1;   // default QPSK
       ctrl_amc_override <= 1'b1;   // default: use local MODE
 
-      st_running        <= 1'b0;
-      st_overflow       <= 1'b0;
+      // st_running        <= 1'b0;
+      // st_overflow       <= 1'b0;
     end else begin
       // -------- write address/data capture (always-ready) ----------
       if (s_axi_awvalid) awaddr_hold <= s_axi_awaddr;
@@ -199,7 +199,7 @@ module mapper #(
       do_write   <= have_write;  // 1-cycle pulse
 
       if (do_write) begin
-        unique case (awaddr_hold[7:2]) // word aligned
+        // unique case (awaddr_hold[7:2]) // word aligned
           // 6'h00: begin // CTRL
           //   if (s_axi_wstrb[0]) begin
           //     ctrl_enable       <= s_axi_wdata[0];
@@ -209,16 +209,16 @@ module mapper #(
           //     ctrl_amc_override <= s_axi_wdata[8];
           //   end
           // end
-          6'h01: begin // STATUS R/W1C
-            if (s_axi_wstrb[0]) begin
-              if (s_axi_wdata[0]) st_running  <= 1'b0;
-              if (s_axi_wdata[2]) st_overflow <= 1'b0;
-            end
-          end
-          default: ;
-        endcase
-        s_axi_bvalid <= 1'b1;
-        s_axi_bresp  <= 2'b00;
+        //   6'h01: begin // STATUS R/W1C
+        //     if (s_axi_wstrb[0]) begin
+        //       if (s_axi_wdata[0]) st_running  <= 1'b0;
+        //       if (s_axi_wdata[2]) st_overflow <= 1'b0;
+        //     end
+        //   end
+        //   default: ;
+        // endcase
+        // s_axi_bvalid <= 1'b1;
+        // s_axi_bresp  <= 2'b00;
       end else if (s_axi_bvalid && s_axi_bready) begin
         s_axi_bvalid <= 1'b0;
       end

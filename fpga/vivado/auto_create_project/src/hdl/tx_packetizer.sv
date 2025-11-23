@@ -1,7 +1,8 @@
 module tx_packetizer #(
-  parameter int DATA_WIDTH = 32,
+  parameter int DATA_WIDTH      = 32,
+  // MAX_FRAME_WORDS sized for worst case BPSK:
+  // PREAMBLE_LEN=64 + PAYLOAD_BYTES(256)*8/K(1)=2048 → total 2112 (plus margin)
   parameter int MAX_FRAME_WORDS = 2112 // MAX_FRAME_WORDS sized for worst case BPSK: PREAMBLE_LEN=64 + PAYLOAD_BYTES(256)*8/K(1)=2048 → total 2112 (plus margin) to allow dynamic QPSK/BPSK
-
 )(
   input  logic                  clk,
   input  logic                  rst_n,
@@ -29,7 +30,10 @@ module tx_packetizer #(
   state_t state, next_state;
 
   // -------- Buffers / counters --------
+  // HINT: tell Vivado to use block RAM
+  (* ram_style = "block" *)
   logic [DATA_WIDTH-1:0] payload_buf [0:MAX_FRAME_WORDS-1];
+
   localparam int PTR_W = $clog2(MAX_FRAME_WORDS);
   logic [PTR_W:0]  wr_ptr;              // writes during COLLECT
   logic [PTR_W:0]  rd_ptr;              // reads during PAYLOAD
@@ -41,7 +45,7 @@ module tx_packetizer #(
   logic [DATA_WIDTH-1:0] next_tdata;
   logic                  next_tvalid, next_tlast;
 
-  // =============== Output register (AXIS master pattern) ===============
+  // ================= AXIS master output register =================
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       m_axis_tvalid <= 1'b0;
@@ -52,7 +56,7 @@ module tx_packetizer #(
       m_axis_tdata  <= next_tvalid ? next_tdata : '0;
       m_axis_tlast  <= next_tvalid ? next_tlast : 1'b0;
     end
-    // else: hold current data/last when stalled
+    // else: hold when stalled
   end
 
   // ===================== State register =====================
@@ -63,8 +67,16 @@ module tx_packetizer #(
       state <= next_state;
   end
 
-  // ===================== Sequential updates =====================
-  // Do *all* pointer/counter writes on handshakes only.
+  // ===================== RAM write port ONLY =====================
+  // IMPORTANT: no reset in this process so Vivado can infer BRAM.
+  always_ff @(posedge clk) begin
+    if ((state == IDLE || state == COLLECT) && s_axis_tvalid && s_axis_tready) begin
+      payload_buf[wr_ptr] <= s_axis_tdata;
+    end
+  end
+
+  // ===================== Sequential updates (no RAM writes) =====================
+  // All pointer/counter updates and control. This one can have reset.
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       wr_ptr         <= '0;
@@ -73,9 +85,8 @@ module tx_packetizer #(
       payload_length <= 16'd0;
       seq_num        <= 16'd0;
     end else begin
-      // Accept input beats
+      // Accept input beats (but NOT the RAM write – that’s in its own block)
       if ((state == IDLE || state == COLLECT) && s_axis_tvalid && s_axis_tready) begin
-        payload_buf[wr_ptr] <= s_axis_tdata;
         wr_ptr         <= wr_ptr + 1;
         payload_length <= payload_length + 1;
         if (s_axis_tlast) begin
@@ -109,16 +120,16 @@ module tx_packetizer #(
   // ===================== Combinational next logic =====================
   always_comb begin
     // defaults
-    next_state   = state;
-    s_axis_tready= 1'b0;
-    next_tvalid  = 1'b0;
-    next_tdata   = '0;
-    next_tlast   = 1'b0;
+    next_state    = state;
+    s_axis_tready = 1'b0;
+    next_tvalid   = 1'b0;
+    next_tdata    = '0;
+    next_tlast    = 1'b0;
 
     unique case (state)
       // ---- Accept first beat immediately ----
       IDLE: begin
-        s_axis_tready = 1'b1;                      // <- critical fix
+        s_axis_tready = 1'b1;
         if (s_axis_tvalid) begin
           if (s_axis_tlast)  next_state = SEND_HEADER; // single-beat frame
           else               next_state = COLLECT;
@@ -138,23 +149,15 @@ module tx_packetizer #(
         if (!m_axis_tvalid || m_axis_tready) begin
           next_tvalid = 1'b1;
           unique case (hdr_idx)
-            2'd0: begin
-              next_tdata = {SYNC_WORD, HEADER_LEN, {MODE_VAL, FLAGS_VAL}};
-            end
-            2'd1: begin
-              next_tdata = {seq_num, payload_length};
-            end
-            2'd2: begin
-              next_tdata = RESERVED;
-            end
+            2'd0: next_tdata = {SYNC_WORD, HEADER_LEN, {MODE_VAL, FLAGS_VAL}};
+            2'd1: next_tdata = {seq_num,   payload_length};
+            2'd2: next_tdata = RESERVED;
           endcase
           // tlast is ONLY for last payload beat, never for header
           next_tlast = 1'b0;
 
-          // advance state after 3rd header beat handshake (handled in seq block)
+          // advance state after 3rd header beat handshake
           if (hdr_idx == 2 && (m_axis_tvalid ? m_axis_tready : 1'b1)) begin
-            // on the cycle hdr_idx==2 issues, seq block will reset hdr_idx and rd_ptr
-            // move to payload next
             next_state = SEND_PAYLOAD;
           end
         end
@@ -164,7 +167,7 @@ module tx_packetizer #(
       SEND_PAYLOAD: begin
         if (!m_axis_tvalid || m_axis_tready) begin
           next_tvalid = 1'b1;
-          next_tdata  = payload_buf[rd_ptr];
+          next_tdata  = payload_buf[rd_ptr];           // async read is OK
           next_tlast  = (rd_ptr == payload_length - 1);
           if (next_tlast) begin
             next_state = IDLE;

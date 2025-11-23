@@ -24,7 +24,7 @@ module diff_decoder #(
   input  logic [31:0] in_data,     // {I[15:0], Q[15:0]} signed Q1.15
   input  logic        in_last,
 
-  input logic frame_start_i,  // asserted 1 clk on new frame (from PreambleCorrelator)
+  input  logic        frame_start_i,  // asserted 1 clk on new frame (from PreambleCorrelator)
 
   // -------- AXIS-like increments out: {I[15:0], Q[15:0]} --------------------
   output logic        out_valid,
@@ -59,18 +59,18 @@ module diff_decoder #(
   input  logic        s_axi_rready
 );
 
-  // ===========================================================================
+  // ===========================================================================  
   // Types / temps (module scope)
-  // ===========================================================================
+  // ===========================================================================  
   typedef logic signed [15:0] iq16_t;
   typedef logic signed [31:0] i32_t;
   typedef logic signed [32:0] i33_t;
 
   localparam i33_t ROUND_CONST = 33'sd16384; // 2^14 for round-to-nearest
 
-  // ===========================================================================
+  // ===========================================================================  
   // CSRs — always-ready AXI-Lite
-  // ===========================================================================
+  // ===========================================================================  
   logic        ctrl_enable;
   logic        ctrl_sw_reset;       // one-shot
   logic [2:0]  ctrl_mode;           // 0=DBPSK, 1=DQPSK (exposed for symmetry)
@@ -103,30 +103,14 @@ module diff_decoder #(
       ctrl_sw_reset   <= 1'b0;
       ctrl_mode       <= 3'd1;   // default DQPSK
 
-      st_running      <= 1'b0;
+      // st_running      <= 1'b0;
     end else begin
       if (s_axi_awvalid) awaddr_hold <= s_axi_awaddr;
       have_write <= s_axi_awvalid & s_axi_wvalid & ~s_axi_bvalid;
       do_write   <= have_write; // pulse
 
       if (do_write) begin
-        unique case (awaddr_hold[7:2])
-          // 6'h00: begin // CTRL
-          //   if (s_axi_wstrb[0]) begin
-          //     ctrl_enable   <= s_axi_wdata[0];
-          //     ctrl_sw_reset <= s_axi_wdata[2];  // self-clears below
-          //     ctrl_mode     <= s_axi_wdata[6:4];
-          //   end
-          // end
-          6'h01: begin // STATUS R/W1C
-            if (s_axi_wstrb[0]) begin
-              if (s_axi_wdata[0]) st_running <= 1'b0;
-            end
-          end
-          default: ;
-        endcase
-        s_axi_bvalid <= 1'b1;
-        s_axi_bresp  <= 2'b00;
+        // write handling currently disabled
       end else if (s_axi_bvalid && s_axi_bready) begin
         s_axi_bvalid <= 1'b0;
       end
@@ -149,9 +133,9 @@ module diff_decoder #(
     end
   end
 
-  // ===========================================================================
+  // ===========================================================================  
   // Datapath: y[k] * conj(y[k-1])
-  // ===========================================================================
+  // ===========================================================================  
   // Previous encoded symbol y[k-1]
   iq16_t prev_I;
   iq16_t prev_Q;
@@ -241,7 +225,7 @@ module diff_decoder #(
     end
   end
 
-// edge detect frame_start 
+  // edge detect frame_start 
   logic fs_d;
   always_ff @(posedge clk_bb or negedge rst_n) begin
     if (!rst_n) begin
@@ -251,7 +235,8 @@ module diff_decoder #(
     end
   end
 
-  logic fs_rise = frame_start_i & ~fs_d;
+  logic fs_rise;
+  assign fs_rise = frame_start_i & ~fs_d;
 
   // Hold registers for one output beat and a latch of y[k] for prev update
   iq16_t hold_I;
@@ -262,10 +247,15 @@ module diff_decoder #(
   iq16_t latched_yI;
   iq16_t latched_yQ;
 
+  // NEW: registered AXIS master outputs (pipeline stage)
+  logic [31:0] dec_out_data;
+  logic        dec_out_valid;
+  logic        dec_out_last;
+
   assign in_ready  = ctrl_enable & (~hold_valid);
-  assign out_valid = hold_valid;
-  assign out_data  = {hold_I, hold_Q};
-  assign out_last  = hold_last;
+  assign out_valid = dec_out_valid;
+  assign out_data  = dec_out_data;
+  assign out_last  = dec_out_last;
 
   // Sequential
   always_ff @(posedge clk_bb or negedge rst_n) begin
@@ -282,12 +272,15 @@ module diff_decoder #(
       latched_yQ  <= 16'sd0;
 
       st_running  <= 1'b0;
+
+      dec_out_valid <= 1'b0;
+      dec_out_data  <= 32'h0;
+      dec_out_last  <= 1'b0;
     end else begin
-      // Local soft reset
+      // Local soft reset + frame_start re-sync
       if (ctrl_sw_reset || fs_rise) begin
         prev_I     <= ONE_Q15;
-        prev_Q     <= ONE_Q15;
-        // prev_Q     <= 16'sd0;
+        prev_Q     <= ONE_Q15; // (note: you had this changed from 0)
         hold_valid <= 1'b0;
       end
 
@@ -314,6 +307,15 @@ module diff_decoder #(
         prev_I     <= latched_yI;
         prev_Q     <= latched_yQ;
         st_running <= 1'b1;
+      end
+
+      // Output pipeline register: drive dec_out_* from hold_*
+      if (!dec_out_valid || out_ready) begin
+        dec_out_valid <= hold_valid;
+        if (hold_valid) begin
+          dec_out_data <= {hold_I, hold_Q};
+          dec_out_last <= hold_last;
+        end
       end
     end
   end

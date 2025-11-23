@@ -39,9 +39,55 @@ module bb_chain_wrapper_no_fec #(
   output wire [7:0]  rx_byte_tdata,
   output wire        rx_byte_tvalid,
   output wire        rx_byte_tlast,
-  input  wire        rx_byte_tready
-);
+  input  wire        rx_byte_tready,
 
+  // ------------------------------------------------------------
+  // *** Debug / observability ports ***
+  // ------------------------------------------------------------
+
+  // TX: mapper output
+  output wire [31:0] dbg_map_out_tdata,
+  output wire        dbg_map_out_tvalid,
+  output wire        dbg_map_out_tready,
+  output wire        dbg_map_out_tlast,
+
+  // TX: diff encoder output
+  output wire [31:0] dbg_de_out_tdata,
+  output wire        dbg_de_out_tvalid,
+  output wire        dbg_de_out_tready,
+  output wire        dbg_de_out_tlast,
+
+  // TX: preamble inserter output
+  output wire [31:0] dbg_pi_tdata,
+  output wire        dbg_pi_tvalid,
+  output wire        dbg_pi_tready,
+  output wire        dbg_pi_tlast,
+
+  // RX: depacketizer output
+  output wire [31:0] dbg_dep_tdata,
+  output wire        dbg_dep_tvalid,
+  output wire        dbg_dep_tready,
+  output wire        dbg_dep_tlast,
+
+  // RX: preamble correlator output + frame_start
+  output wire [31:0] dbg_pc_tdata,
+  output wire        dbg_pc_tvalid,
+  output wire        dbg_pc_tready,
+  output wire        dbg_pc_tlast,
+  output wire        dbg_frame_start,
+
+  // RX: diff decoder output
+  output wire [31:0] dbg_dd_out_tdata,
+  output wire        dbg_dd_out_tvalid,
+  output wire        dbg_dd_out_tready,
+  output wire        dbg_dd_out_tlast,
+
+  // RX: slicer input (symbols)
+  output wire [31:0] dbg_sl_in_tdata,
+  output wire        dbg_sl_in_tvalid,
+  output wire        dbg_sl_in_tready,
+  output wire        dbg_sl_in_tlast
+);
 
   // ============================================================
   // PRBS AXI-Stream source (AXI-Lite tied off)
@@ -54,44 +100,79 @@ module bb_chain_wrapper_no_fec #(
   logic [1:0]  prbs_bresp, prbs_rresp;
   logic [31:0] prbs_rdata;
 
-  prbs_axi_stream #(
-    .AXIL_ADDR_WIDTH(6),
-    .AXIL_DATA_WIDTH(32)
-  ) u_prbs (
-    .clk            (clk_tx),
-    .rst_n          (rst_tx_n),
+  // prbs_axi_stream #(
+  //   .AXIL_ADDR_WIDTH(6),
+  //   .AXIL_DATA_WIDTH(32)
+  // ) u_prbs (
+  //   .clk            (clk_tx),
+  //   .rst_n          (rst_tx_n),
 
-    // AXI-Lite: inputs tied low, outputs ignored
-    .s_axil_awaddr  (6'd0),
-    .s_axil_awvalid (1'b0),
-    .s_axil_awready (prbs_awready),
-    .s_axil_wdata   (32'd0),
-    .s_axil_wstrb   (4'd0),
-    .s_axil_wvalid  (1'b0),
-    .s_axil_wready  (prbs_wready),
-    .s_axil_bresp   (prbs_bresp),
-    .s_axil_bvalid  (prbs_bvalid),
-    .s_axil_bready  (1'b0),
-    .s_axil_araddr  (6'd0),
-    .s_axil_arvalid (1'b0),
-    .s_axil_arready (prbs_arready),
-    .s_axil_rdata   (prbs_rdata),
-    .s_axil_rresp   (prbs_rresp),
-    .s_axil_rvalid  (prbs_rvalid),
-    .s_axil_rready  (1'b0),
+  //   // AXI-Lite: inputs tied low, outputs ignored
+  //   .s_axil_awaddr  (6'd0),
+  //   .s_axil_awvalid (1'b0),
+  //   .s_axil_awready (prbs_awready),
+  //   .s_axil_wdata   (32'd0),
+  //   .s_axil_wstrb   (4'd0),
+  //   .s_axil_wvalid  (1'b0),
+  //   .s_axil_wready  (prbs_wready),
+  //   .s_axil_bresp   (prbs_bresp),
+  //   .s_axil_bvalid  (prbs_bvalid),
+  //   .s_axil_bready  (1'b0),
+  //   .s_axil_araddr  (6'd0),
+  //   .s_axil_arvalid (1'b0),
+  //   .s_axil_arready (prbs_arready),
+  //   .s_axil_rdata   (prbs_rdata),
+  //   .s_axil_rresp   (prbs_rresp),
+  //   .s_axil_rvalid  (prbs_rvalid),
+  //   .s_axil_rready  (1'b0),
 
-    // AXI-Stream
-    .m_axis_tdata   (prbs_tdata),
-    .m_axis_tvalid  (prbs_tvalid),
-    .m_axis_tready  (prbs_tready),
-    .m_axis_tlast   (prbs_tlast)
-  );
+  //   // AXI-Stream
+  //   .m_axis_tdata   (prbs_tdata),
+  //   .m_axis_tvalid  (prbs_tvalid),
+  //   .m_axis_tready  (prbs_tready),
+  //   .m_axis_tlast   (prbs_tlast)
+  // );
+
+  // // Expose PRBS stream for ILA
+  // assign prbs_mon_tdata  = prbs_tdata;
+  // assign prbs_mon_tvalid = prbs_tvalid;
+  // assign prbs_mon_tlast  = prbs_tlast;
+  // assign prbs_mon_tready = prbs_tready;
+
+
+// ------------------------------------------------------------
+// AXI-Stream Counter Source (replaces PRBS for debug)
+// ------------------------------------------------------------
+localparam int COUNTER_FRAME_LEN = 256;  // bytes per frame; or 0 for no TLAST
+
+// AXIS signals (example)
+logic         cntr_tx_enable;        // drive from your FSM / control
+logic [7:0]   cntr_tx_tdata;
+logic         cntr_tx_tvalid;
+logic         cntr_tx_tready;
+logic         cntr_tx_tlast;
+
+axis_counter_src #(
+  .FRAME_LEN (COUNTER_FRAME_LEN)   // 0 => never assert TLAST
+) u_axis_counter_src (
+  .clk          (clk_tx),             // input  logic
+  .rst_n        (rst_tx_n),           // input  logic, active-low
+
+  .enable       (1'b1),       // input  logic
+
+  .m_axis_tdata (cntr_tx_tdata),        // output logic [7:0]
+  .m_axis_tvalid(cntr_tx_tvalid),       // output logic
+  .m_axis_tready(cntr_tx_tready),       // input  logic
+  .m_axis_tlast (cntr_tx_tlast)         // output logic
+);
+
 
   // Expose PRBS stream for ILA
-  assign prbs_mon_tdata  = prbs_tdata;
-  assign prbs_mon_tvalid = prbs_tvalid;
-  assign prbs_mon_tlast  = prbs_tlast;
-  assign prbs_mon_tready = prbs_tready;
+  assign prbs_mon_tdata  = cntr_tx_tdata;
+  assign prbs_mon_tvalid = cntr_tx_tvalid;
+  assign prbs_mon_tlast  = cntr_tx_tlast;
+  assign prbs_mon_tready = map_in_ready;
+
 
   // ============================================================
   // TX chain: PRBS -> Mapper -> Diff Encoder -> PreambleInserter -> TX Packetizer
@@ -103,10 +184,15 @@ module bb_chain_wrapper_no_fec #(
   logic        map_out_valid, map_out_ready, map_out_last;
   logic [31:0] map_out_data;
 
-  assign map_in_valid = prbs_tvalid;
-  assign map_in_data  = prbs_tdata;
-  assign map_in_last  = prbs_tlast;
-  assign prbs_tready  = map_in_ready;
+  // assign map_in_valid = prbs_tvalid;
+  // assign map_in_data  = prbs_tdata;
+  // assign map_in_last  = prbs_tlast;
+  // assign prbs_tready  = map_in_ready;
+
+  assign map_in_valid = cntr_tx_tdata;
+  assign map_in_data  = cntr_tx_tvalid;
+  assign map_in_last  = cntr_tx_tlast;
+  assign cntr_tx_tready  = map_in_ready;
 
   // dummy wires for mapper AXI-Lite outputs
   logic        m_awready, m_wready, m_bvalid, m_arready, m_rvalid;
@@ -395,5 +481,52 @@ module bb_chain_wrapper_no_fec #(
   assign rx_byte_tdata  = sl_out_data;
   assign rx_byte_tvalid = sl_out_valid;
   assign rx_byte_tlast  = sl_out_last;
+
+  // ------------------------------------------------------------
+  // Debug signal hookups
+  // ------------------------------------------------------------
+
+  // TX: mapper
+  assign dbg_map_out_tdata  = map_out_data;
+  assign dbg_map_out_tvalid = map_out_valid;
+  assign dbg_map_out_tready = map_out_ready;
+  assign dbg_map_out_tlast  = map_out_last;
+
+  // TX: diff encoder
+  assign dbg_de_out_tdata   = de_out_data;
+  assign dbg_de_out_tvalid  = de_out_valid;
+  assign dbg_de_out_tready  = de_out_ready;
+  assign dbg_de_out_tlast   = de_out_last;
+
+  // TX: preamble inserter
+  assign dbg_pi_tdata       = pi_tdata;
+  assign dbg_pi_tvalid      = pi_tvalid;
+  assign dbg_pi_tready      = pi_tready;
+  assign dbg_pi_tlast       = pi_tlast;
+
+  // RX: depacketizer
+  assign dbg_dep_tdata      = dep_tdata;
+  assign dbg_dep_tvalid     = dep_tvalid;
+  assign dbg_dep_tready     = dep_tready;
+  assign dbg_dep_tlast      = dep_tlast;
+
+  // RX: preamble correlator
+  assign dbg_pc_tdata       = pc_tdata;
+  assign dbg_pc_tvalid      = pc_tvalid;
+  assign dbg_pc_tready      = pc_tready;
+  assign dbg_pc_tlast       = pc_tlast;
+  assign dbg_frame_start    = frame_start;
+
+  // RX: diff decoder
+  assign dbg_dd_out_tdata   = dd_out_data;
+  assign dbg_dd_out_tvalid  = dd_out_valid;
+  assign dbg_dd_out_tready  = dd_out_ready;
+  assign dbg_dd_out_tlast   = dd_out_last;
+
+  // RX: slicer input
+  assign dbg_sl_in_tdata    = sl_in_data;
+  assign dbg_sl_in_tvalid   = sl_in_valid;
+  assign dbg_sl_in_tready   = sl_in_ready;
+  assign dbg_sl_in_tlast    = sl_in_last;
 
 endmodule
