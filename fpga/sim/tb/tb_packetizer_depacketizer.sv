@@ -6,12 +6,18 @@ module tb_pkt_loopback;
   // --------------------------------------------------------------------------
   localparam int DATA_WIDTH     = 32;
   localparam int CLK_PERIOD     = 4;          // 250 MHz
-  localparam int PREAMBLE_LEN   = 64;         // symbols (32-bit words)
+
+  // No preamble in this TB: we only test "header added/removed around payload"
   localparam int PAYLOAD_BYTES  = 256;        // bytes per frame
   localparam bit USE_QPSK       = 1'b1;       // 1→QPSK(K=2), 0→BPSK(K=1)
   localparam int K_BITS_PER_SYM = (USE_QPSK ? 2 : 1);
   localparam int PAYLOAD_WORDS  = (PAYLOAD_BYTES*8)/K_BITS_PER_SYM; // 256*8/2=1024
-  localparam int TOTAL_WORDS    = PREAMBLE_LEN + PAYLOAD_WORDS;     // 64+1024=1088
+
+  // We're only sending payload words; packetizer will add its own 3-word header
+  localparam int TOTAL_WORDS    = PAYLOAD_WORDS;
+
+  // *** NEW: number of packets/frames to send
+  localparam int N_FRAMES       = 4;
 
   // Synthesize packetizer for worst-case (BPSK: 64 + 256*8 = 2112) + margin
   localparam int MAX_FRAME_WORDS = 2112 + 64;
@@ -32,7 +38,7 @@ module tb_pkt_loopback;
   // --------------------------------------------------------------------------
   // AXIS connections
   // --------------------------------------------------------------------------
-  reg  [DATA_WIDTH-1:0] s_axis_tdata = '0;
+  reg  [DATA_WIDTH-1:0] s_axis_tdata  = '0;
   reg                   s_axis_tvalid = 1'b0;
   wire                  s_axis_tready;
   reg                   s_axis_tlast  = 1'b0;
@@ -75,7 +81,7 @@ module tb_pkt_loopback;
     .s_axis_tvalid  ( link_tvalid ),
     .s_axis_tready  ( link_tready ),   // RX drives this; don't tie off in TB
     .s_axis_tlast   ( link_tlast ),
-    .m_axis_tdata   ( m_axis_tdata ),  // FIX: was m_arrow_tdata
+    .m_axis_tdata   ( m_axis_tdata ),
     .m_axis_tvalid  ( m_axis_tvalid ),
     .m_axis_tready  ( m_axis_tready ),
     .m_axis_tlast   ( m_axis_tlast )
@@ -87,10 +93,10 @@ module tb_pkt_loopback;
   integer num_cycles = 0;
   always @(posedge clk) begin
     if (!rst_n) begin
-      num_cycles   <= 0;
+      num_cycles    <= 0;
       m_axis_tready <= 1'b1;
     end else begin
-      num_cycles   <= num_cycles + 1;
+      num_cycles    <= num_cycles + 1;
       // After 200 cycles, randomly stall ~10% of the time
       if (num_cycles > 200)
         m_axis_tready <= ($urandom_range(0,9) != 0);
@@ -99,41 +105,47 @@ module tb_pkt_loopback;
     end
   end
 
-
   // --------------------------------------------------------------------------
-  // Drive one frame into packetizer: [PREAMBLE_LEN] + [PAYLOAD_WORDS]
+  // Drive N_FRAMES frames into packetizer: payload only (no preamble)
   // --------------------------------------------------------------------------
-  initial begin : drive_frame
+  initial begin : drive_frames
+    int frame;
     int idx;
+
     wait (rst_n);
     repeat (8) @(posedge clk);
 
-    $display("[%0t] Start frame: TOTAL_WORDS=%0d (preamble=%0d, payload=%0d)",
-             $time, TOTAL_WORDS, PREAMBLE_LEN, PAYLOAD_WORDS);
+    $display("[%0t] Start: N_FRAMES=%0d, PAYLOAD_WORDS per frame=%0d",
+             $time, N_FRAMES, PAYLOAD_WORDS);
 
-    idx = 0;
     s_axis_tvalid = 1'b0;
     s_axis_tlast  = 1'b0;
+    s_axis_tdata  = '0;
 
-    while (idx < TOTAL_WORDS) begin
-      if (idx < PREAMBLE_LEN)
-        s_axis_tdata <= 32'hAA55_0000 | {16'h0000, idx[15:0]}; // "preamble-ish" tag
-      else
-        s_axis_tdata <= {16'hBEEF, idx[15:0]};                 // payload counter
+    for (frame = 0; frame < N_FRAMES; frame++) begin
+      $display("[%0t] TX: starting frame %0d", $time, frame);
+      idx = 0;
 
-      s_axis_tlast  <= (idx == TOTAL_WORDS-1);
-      s_axis_tvalid <= 1'b1;
+      // Send one frame of TOTAL_WORDS payload beats
+      while (idx < TOTAL_WORDS) begin
+        // payload pattern; same pattern each frame, TLAST marks boundary
+        s_axis_tdata  <= {16'hBEEF, idx[15:0]};
+        s_axis_tlast  <= (idx == TOTAL_WORDS-1);
+        s_axis_tvalid <= 1'b1;
 
-      @(posedge clk);
-      if (s_axis_tvalid && s_axis_tready) begin
-        idx <= idx + 1;
+        @(posedge clk);
+        if (s_axis_tvalid && s_axis_tready) begin
+          idx <= idx + 1;
+        end
       end
+
+      // Deassert between frames (1 cycle gap is fine, could be 0 too)
+      s_axis_tvalid <= 1'b0;
+      s_axis_tlast  <= 1'b0;
+      @(posedge clk);
     end
 
-    s_axis_tvalid <= 1'b0;
-    s_axis_tlast  <= 1'b0;
-
-    $display("[%0t] TX supplied %0d words to packetizer", $time, idx);
+    $display("[%0t] TX: finished sending %0d frames", $time, N_FRAMES);
   end
 
   // --------------------------------------------------------------------------
@@ -144,13 +156,13 @@ module tb_pkt_loopback;
     if (rst_n && m_axis_tvalid && m_axis_tready) begin
       recv_cnt <= recv_cnt + 1;
       if (m_axis_tlast) begin
-        $display("[%0t] RX TLAST at word #%0d", $time, recv_cnt);
+        $display("[%0t] RX TLAST at payload word #%0d", $time, recv_cnt);
       end
     end
   end
 
   // --------------------------------------------------------------------------
-  // CSV logging (ADDED): packetizer input and depacketizer output
+  // CSV logging: packetizer input and depacketizer output (payload only)
   // --------------------------------------------------------------------------
   integer f_pkt_in, f_dep_out;
   integer in_idx, out_idx;
@@ -160,7 +172,6 @@ module tb_pkt_loopback;
     f_dep_out = $fopen("dep_out.csv", "w");
     if (!f_pkt_in || !f_dep_out) $fatal(1, "Failed to open CSV output(s).");
 
-    // Headers match previous convention
     $fdisplay(f_pkt_in,  "time_ns,idx,tvalid,tready,tlast,data_hex");
     $fdisplay(f_dep_out, "time_ns,idx,tvalid,tready,tlast,data_hex");
 
@@ -168,7 +179,7 @@ module tb_pkt_loopback;
     out_idx = 0;
   end
 
-  // Log every accepted input beat into the packetizer
+  // Log every accepted input beat into the packetizer (payload in)
   always @(posedge clk) begin
     if (rst_n && s_axis_tvalid && s_axis_tready) begin
       $fdisplay(f_pkt_in, "%0t,%0d,%0d,%0d,%0d,%08h",
@@ -177,26 +188,28 @@ module tb_pkt_loopback;
     end
   end
 
-  // Log every produced output beat from the depacketizer
+  // Log every produced output beat from the depacketizer (payload out)
   always @(posedge clk) begin
     if (rst_n && m_axis_tvalid && m_axis_tready) begin
-        $fdisplay(f_dep_out, "%0t,%0d,%0d,%0d,%0d,%08h",$time, out_idx, m_axis_tvalid, m_axis_tready, m_axis_tlast, m_axis_tdata);
+      $fdisplay(f_dep_out, "%0t,%0d,%0d,%0d,%0d,%08h",
+                $time, out_idx, m_axis_tvalid, m_axis_tready, m_axis_tlast, m_axis_tdata);
       out_idx <= out_idx + 1;
     end
   end
-  
 
   // --------------------------------------------------------------------------
-  // Finish when full frame drained from depacketizer
+  // Finish when all frames drained from depacketizer
   // --------------------------------------------------------------------------
   initial begin
     wait (rst_n);
-    wait (recv_cnt == TOTAL_WORDS);
+    wait (recv_cnt == TOTAL_WORDS * N_FRAMES);
     repeat (10) @(posedge clk);
-    $display("=== DONE: Received %0d words (expected %0d) ===", recv_cnt, TOTAL_WORDS);
+    $display("=== DONE: Received %0d payload words (expected %0d) ===",
+             recv_cnt, TOTAL_WORDS * N_FRAMES);
     $fclose(f_pkt_in);
     $fclose(f_dep_out);
     $finish;
   end
+
 
 endmodule

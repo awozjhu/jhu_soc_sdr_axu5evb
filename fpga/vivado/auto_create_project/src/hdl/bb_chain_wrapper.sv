@@ -7,10 +7,8 @@ module bb_chain_wrapper_no_fec #(
   // ------------------------------------------------------------
   // Clocks / resets
   // ------------------------------------------------------------
-  input  wire        clk_tx,     // tx baseband clock (use tx0_clk)
-  input  wire        clk_rx,     // rx baseband clock (use rx0_clk)
-  input  wire        rst_tx_n,   // active-low synchronous reset for tx datapath
-  input  wire        rst_rx_n,   // active-low synchronous reset for rx datapath
+  input  wire        clk,     // tx and rx baseband clock
+  input  wire        rst_n,   // active-low synchronous reset for tx and rx datapath
 
   // ------------------------------------------------------------
   // TX side: output of tx_packetizer (to hook to packet_send)
@@ -58,10 +56,10 @@ module bb_chain_wrapper_no_fec #(
   output wire        dbg_de_out_tlast,
 
   // TX: preamble inserter output
-  output wire [31:0] dbg_pi_tdata,
-  output wire        dbg_pi_tvalid,
-  output wire        dbg_pi_tready,
-  output wire        dbg_pi_tlast,
+  // output wire [31:0] dbg_pi_tdata,
+  // output wire        dbg_pi_tvalid,
+  // output wire        dbg_pi_tready,
+  // output wire        dbg_pi_tlast,
 
   // RX: depacketizer output
   output wire [31:0] dbg_dep_tdata,
@@ -70,11 +68,11 @@ module bb_chain_wrapper_no_fec #(
   output wire        dbg_dep_tlast,
 
   // RX: preamble correlator output + frame_start
-  output wire [31:0] dbg_pc_tdata,
-  output wire        dbg_pc_tvalid,
-  output wire        dbg_pc_tready,
-  output wire        dbg_pc_tlast,
-  output wire        dbg_frame_start,
+  // output wire [31:0] dbg_pc_tdata,
+  // output wire        dbg_pc_tvalid,
+  // output wire        dbg_pc_tready,
+  // output wire        dbg_pc_tlast,
+  // output wire        dbg_frame_start,
 
   // RX: diff decoder output
   output wire [31:0] dbg_dd_out_tdata,
@@ -100,39 +98,6 @@ module bb_chain_wrapper_no_fec #(
   logic [1:0]  prbs_bresp, prbs_rresp;
   logic [31:0] prbs_rdata;
 
-  // prbs_axi_stream #(
-  //   .AXIL_ADDR_WIDTH(6),
-  //   .AXIL_DATA_WIDTH(32)
-  // ) u_prbs (
-  //   .clk            (clk_tx),
-  //   .rst_n          (rst_tx_n),
-
-  //   // AXI-Lite: inputs tied low, outputs ignored
-  //   .s_axil_awaddr  (6'd0),
-  //   .s_axil_awvalid (1'b0),
-  //   .s_axil_awready (prbs_awready),
-  //   .s_axil_wdata   (32'd0),
-  //   .s_axil_wstrb   (4'd0),
-  //   .s_axil_wvalid  (1'b0),
-  //   .s_axil_wready  (prbs_wready),
-  //   .s_axil_bresp   (prbs_bresp),
-  //   .s_axil_bvalid  (prbs_bvalid),
-  //   .s_axil_bready  (1'b0),
-  //   .s_axil_araddr  (6'd0),
-  //   .s_axil_arvalid (1'b0),
-  //   .s_axil_arready (prbs_arready),
-  //   .s_axil_rdata   (prbs_rdata),
-  //   .s_axil_rresp   (prbs_rresp),
-  //   .s_axil_rvalid  (prbs_rvalid),
-  //   .s_axil_rready  (1'b0),
-
-  //   // AXI-Stream
-  //   .m_axis_tdata   (prbs_tdata),
-  //   .m_axis_tvalid  (prbs_tvalid),
-  //   .m_axis_tready  (prbs_tready),
-  //   .m_axis_tlast   (prbs_tlast)
-  // );
-
   // // Expose PRBS stream for ILA
   // assign prbs_mon_tdata  = prbs_tdata;
   // assign prbs_mon_tvalid = prbs_tvalid;
@@ -152,11 +117,25 @@ logic         cntr_tx_tvalid;
 logic         cntr_tx_tready;
 logic         cntr_tx_tlast;
 
-axis_counter_src #(
-  .FRAME_LEN (COUNTER_FRAME_LEN)   // 0 => never assert TLAST
-) u_axis_counter_src (
-  .clk          (clk_tx),             // input  logic
-  .rst_n        (rst_tx_n),           // input  logic, active-low
+// axis_counter_src #(
+//   .FRAME_LEN (COUNTER_FRAME_LEN)   // 0 => never assert TLAST
+// ) u_axis_counter_src (
+//   .clk          (clk),             // input  logic
+//   .rst_n        (rst_n),           // input  logic, active-low
+
+//   .enable       (1'b1),       // input  logic
+
+//   .m_axis_tdata (cntr_tx_tdata),        // output logic [7:0]
+//   .m_axis_tvalid(cntr_tx_tvalid),       // output logic
+//   .m_axis_tready(cntr_tx_tready),       // input  logic
+//   .m_axis_tlast (cntr_tx_tlast)         // output logic
+// );
+
+axis_prbs_src #(
+  .FRAME_LEN_BYTES (COUNTER_FRAME_LEN)   // 0 => never assert TLAST
+) u_axis_prbs_src (
+  .clk          (clk),             // input  logic
+  .rst_n        (rst_n),           // input  logic, active-low
 
   .enable       (1'b1),       // input  logic
 
@@ -167,11 +146,6 @@ axis_counter_src #(
 );
 
 
-  // Expose PRBS stream for ILA
-  assign prbs_mon_tdata  = cntr_tx_tdata;
-  assign prbs_mon_tvalid = cntr_tx_tvalid;
-  assign prbs_mon_tlast  = cntr_tx_tlast;
-  assign prbs_mon_tready = map_in_ready;
 
 
   // ============================================================
@@ -189,10 +163,18 @@ axis_counter_src #(
   // assign map_in_last  = prbs_tlast;
   // assign prbs_tready  = map_in_ready;
 
-  assign map_in_valid = cntr_tx_tdata;
-  assign map_in_data  = cntr_tx_tvalid;
-  assign map_in_last  = cntr_tx_tlast;
-  assign cntr_tx_tready  = map_in_ready;
+  // Expose PRBS stream for ILA
+assign prbs_mon_tdata  = cntr_tx_tdata;
+assign prbs_mon_tvalid = cntr_tx_tvalid;
+assign prbs_mon_tlast  = cntr_tx_tlast;
+assign prbs_mon_tready = map_in_ready;
+
+// Correct wiring:
+assign map_in_valid    = cntr_tx_tvalid;
+assign map_in_data     = cntr_tx_tdata;
+assign map_in_last     = cntr_tx_tlast;
+assign cntr_tx_tready  = map_in_ready;
+
 
   // dummy wires for mapper AXI-Lite outputs
   logic        m_awready, m_wready, m_bvalid, m_arready, m_rvalid;
@@ -200,8 +182,8 @@ axis_counter_src #(
   logic [31:0] m_rdata;
 
   mapper u_mapper (
-    .clk_bb           (clk_tx),
-    .rst_n            (rst_tx_n),
+    .clk_bb           (clk),
+    .rst_n            (rst_n),
 
     .in_valid         (map_in_valid),
     .in_ready         (map_in_ready),
@@ -217,8 +199,8 @@ axis_counter_src #(
     .amc_mode_valid_i (1'b0),
 
     // AXI-Lite tied off
-    .s_axi_aclk       (clk_tx),
-    .s_axi_aresetn    (rst_tx_n),
+    .s_axi_aclk       (clk),
+    .s_axi_aresetn    (rst_n),
     .s_axi_awaddr     (8'd0),
     .s_axi_awvalid    (1'b0),
     .s_axi_awready    (m_awready),
@@ -254,8 +236,8 @@ axis_counter_src #(
   logic [31:0] de_rdata;
 
   diff_encoder u_diff_enc (
-    .clk_bb        (clk_tx),
-    .rst_n         (rst_tx_n),
+    .clk_bb        (clk),
+    .rst_n         (rst_n),
 
     .in_valid      (de_in_valid),
     .in_ready      (de_in_ready),
@@ -267,8 +249,8 @@ axis_counter_src #(
     .out_data      (de_out_data),
     .out_last      (de_out_last),
 
-    .s_axi_aclk    (clk_tx),
-    .s_axi_aresetn (rst_tx_n),
+    .s_axi_aclk    (clk),
+    .s_axi_aresetn (rst_n),
     .s_axi_awaddr  (8'd0),
     .s_axi_awvalid (1'b0),
     .s_axi_awready (de_awready),
@@ -289,35 +271,35 @@ axis_counter_src #(
   );
 
   // ---------------- Preamble Inserter ----------------
-  logic        pi_tvalid, pi_tready, pi_tlast;
-  logic [31:0] pi_tdata;
+  // logic        pi_tvalid, pi_tready, pi_tlast;
+  // logic [31:0] pi_tdata;
 
-  PreambleInserter #(
-    .PREAMBLE_LEN(PREAMBLE_LEN)
-  ) u_preamble_ins (
-    .aclk          (clk_tx),
-    .aresetn       (rst_tx_n),
+  // PreambleInserter #(
+  //   .PREAMBLE_LEN(PREAMBLE_LEN)
+  // ) u_preamble_ins (
+  //   .aclk          (clk),
+  //   .aresetn       (rst_n),
 
-    .s_axis_tvalid (de_out_valid),
-    .s_axis_tready (de_out_ready),
-    .s_axis_tdata  (de_out_data),
-    .s_axis_tlast  (de_out_last),
+  //   .s_axis_tvalid (de_out_valid),
+  //   .s_axis_tready (de_out_ready),
+  //   .s_axis_tdata  (de_out_data),
+  //   .s_axis_tlast  (de_out_last),
 
-    .m_axis_tvalid (pi_tvalid),
-    .m_axis_tready (pi_tready),
-    .m_axis_tdata  (pi_tdata),
-    .m_axis_tlast  (pi_tlast)
-  );
+  //   .m_axis_tvalid (pi_tvalid),
+  //   .m_axis_tready (pi_tready),
+  //   .m_axis_tdata  (pi_tdata),
+  //   .m_axis_tlast  (pi_tlast)
+  // );
 
   // ---------------- TX Packetizer ----------------
   tx_packetizer u_tx_pkt (
-    .clk           (clk_tx),
-    .rst_n         (rst_tx_n),
+    .clk           (clk),
+    .rst_n         (rst_n),
 
-    .s_axis_tdata  (pi_tdata),
-    .s_axis_tvalid (pi_tvalid),
-    .s_axis_tready (pi_tready),
-    .s_axis_tlast  (pi_tlast),
+    .s_axis_tdata  (de_out_data),
+    .s_axis_tvalid (de_out_valid),
+    .s_axis_tready (de_out_ready),
+    .s_axis_tlast  (de_out_last),
 
     .m_axis_tdata  (tx_pkt_tdata),
     .m_axis_tvalid (tx_pkt_tvalid),
@@ -325,17 +307,21 @@ axis_counter_src #(
     .m_axis_tlast  (tx_pkt_tlast)
   );
 
+
   // ============================================================
   // RX chain: RX symbols -> Depacketizer -> Preamble Corr -> Diff Dec -> Slicer
   // ============================================================
+
+  // UPDATED RX Chain, No Preamble CHAIN: RX symbols -> Depacketizer -> Diff Dec -> Slicer
+
 
   // ---------------- Depacketizer ----------------
   logic        dep_tvalid, dep_tready, dep_tlast;
   logic [31:0] dep_tdata;
 
   rx_depacketizer u_rx_depkt (
-    .clk           (clk_rx),
-    .rst_n         (rst_rx_n),
+    .clk           (clk),
+    .rst_n         (rst_n),
 
     .s_axis_tdata  (rx_sym_tdata),
     .s_axis_tvalid (rx_sym_tvalid),
@@ -349,28 +335,28 @@ axis_counter_src #(
   );
 
   // ---------------- Preamble Correlator ----------------
-  logic        pc_tvalid, pc_tready, pc_tlast;
-  logic [31:0] pc_tdata;
-  logic        frame_start;
+  // logic        pc_tvalid, pc_tready, pc_tlast;
+  // logic [31:0] pc_tdata;
+  // logic        frame_start;
 
-  PreambleCorrelator #(
-    .PREAMBLE_LEN(PREAMBLE_LEN)
-  ) u_pcorr (
-    .clk           (clk_rx),
-    .rst_n         (rst_rx_n),
+  // PreambleCorrelator #(
+  //   .PREAMBLE_LEN(PREAMBLE_LEN)
+  // ) u_pcorr (
+  //   .clk           (clk),
+  //   .rst_n         (rst_n),
 
-    .s_axis_tvalid (dep_tvalid),
-    .s_axis_tready (dep_tready),
-    .s_axis_tdata  (dep_tdata),
-    .s_axis_tlast  (dep_tlast),
+  //   .s_axis_tvalid (dep_tvalid),
+  //   .s_axis_tready (dep_tready),
+  //   .s_axis_tdata  (dep_tdata),
+  //   .s_axis_tlast  (dep_tlast),
 
-    .m_axis_tvalid (pc_tvalid),
-    .m_axis_tready (pc_tready),
-    .m_axis_tdata  (pc_tdata),
-    .m_axis_tlast  (pc_tlast),
+  //   .m_axis_tvalid (pc_tvalid),
+  //   .m_axis_tready (pc_tready),
+  //   .m_axis_tdata  (pc_tdata),
+  //   .m_axis_tlast  (pc_tlast),
 
-    .frame_start   (frame_start)
-  );
+  //   .frame_start   (frame_start)
+  // );
 
   // ---------------- Diff Decoder ----------------
   logic        dd_in_valid, dd_in_ready, dd_in_last;
@@ -378,10 +364,37 @@ axis_counter_src #(
   logic        dd_out_valid, dd_out_ready, dd_out_last;
   logic [31:0] dd_out_data;
 
-  assign dd_in_valid = pc_tvalid;
-  assign dd_in_data  = pc_tdata;
-  assign dd_in_last  = pc_tlast;
-  assign pc_tready   = dd_in_ready;
+  assign dd_in_valid = dep_tvalid;
+  assign dd_in_data  = dep_tdata;
+  assign dd_in_last  = dep_tlast;
+  assign dep_tready   = dd_in_ready;
+
+  // logic        frame_start;
+  // logic new_frame_pending;
+
+  // Frame start detection logic without preamble correlator
+  // always_ff @(posedge clk or negedge rst_n) begin
+  //   if (!rst_n) begin
+  //     new_frame_pending <= 1'b1;   // treat very first symbol as new frame
+  //     frame_start       <= 1'b0;
+  //   end else begin
+  //     frame_start <= 1'b0;  // default
+
+  //     // Handshake on depacketizer output into diff decoder
+  //     if (dep_tvalid && dd_in_ready) begin
+  //       // First symbol of a new frame
+  //       if (new_frame_pending) begin
+  //         frame_start       <= 1'b1;
+  //         new_frame_pending <= 1'b0;
+  //       end
+
+  //       // Last symbol of this frame → next accepted one will be new frame
+  //       if (dep_tlast) begin
+  //         new_frame_pending <= 1'b1;
+  //       end
+  //     end
+  //   end
+  // end
 
   // dummy AXI-Lite outputs
   logic        dd_awready, dd_wready, dd_bvalid, dd_arready, dd_rvalid;
@@ -389,22 +402,23 @@ axis_counter_src #(
   logic [31:0] dd_rdata;
 
   diff_decoder u_diff_dec (
-    .clk_bb        (clk_rx),
-    .rst_n         (rst_rx_n),
+    .clk_bb        (clk),
+    .rst_n         (rst_n),
 
     .in_valid      (dd_in_valid),
     .in_ready      (dd_in_ready),
     .in_data       (dd_in_data),
     .in_last       (dd_in_last),
-    .frame_start_i (frame_start),
+    // .frame_start_i (frame_start),
+    .frame_start_i (1'b0), // tie off for no preamble
 
     .out_valid     (dd_out_valid),
     .out_ready     (dd_out_ready),
     .out_data      (dd_out_data),
     .out_last      (dd_out_last),
 
-    .s_axi_aclk    (clk_rx),
-    .s_axi_aresetn (rst_rx_n),
+    .s_axi_aclk    (clk),
+    .s_axi_aresetn (rst_n),
     .s_axi_awaddr  (8'd0),
     .s_axi_awvalid (1'b0),
     .s_axi_awready (dd_awready),
@@ -427,7 +441,7 @@ axis_counter_src #(
   // ---------------- Slicer ----------------
   logic        sl_in_valid, sl_in_ready, sl_in_last;
   logic [31:0] sl_in_data;
-  logic        sl_out_valid, sl_out_last;
+  logic        sl_out_valid, sl_out_last, sl_out_ready;
   logic [7:0]  sl_out_data;
 
   // dummy AXI-Lite outputs
@@ -441,8 +455,8 @@ axis_counter_src #(
   assign dd_out_ready = sl_in_ready;
 
   slicer u_slicer (
-    .clk_bb        (clk_rx),
-    .rst_n         (rst_rx_n),
+    .clk_bb        (clk),
+    .rst_n         (rst_n),
 
     .in_valid      (sl_in_valid),
     .in_ready      (sl_in_ready),
@@ -450,14 +464,14 @@ axis_counter_src #(
     .in_last       (sl_in_last),
 
     .out_valid     (sl_out_valid),
-    .out_ready     (rx_byte_tready),
+    .out_ready     (rx_byte_tready), // input
     .out_data      (sl_out_data),
     .out_last      (sl_out_last),
 
     .amc_mode_i    (3'(USE_QPSK)),
 
-    .s_axi_aclk    (clk_rx),
-    .s_axi_aresetn (rst_rx_n),
+    .s_axi_aclk    (clk),
+    .s_axi_aresetn (rst_n),
     .s_axi_awaddr  (8'd0),
     .s_axi_awvalid (1'b0),
     .s_axi_awready (sl_awready),
@@ -476,6 +490,28 @@ axis_counter_src #(
     .s_axi_rvalid  (sl_rvalid),
     .s_axi_rready  (1'b0)
   );
+
+  // // ---------------- AXIS Byte Packer ----------------
+  // logic [7:0] rx_packed_tdata;
+  // logic       rx_packed_tvalid, rx_packed_tready, rx_packed_tlast;
+
+  // axis_byte_packer #(
+  //   .BITS_PER_SYM(2)          // QPSK
+  // ) u_byte_packer (
+  //   .clk           (clk),
+  //   .rst_n         (rst_n),
+
+  //   .s_axis_tdata  (sl_out_data),
+  //   .s_axis_tvalid (sl_out_valid),
+  //   .s_axis_tready (sl_out_ready),
+  //   .s_axis_tlast  (sl_out_last),
+
+  //   .m_axis_tdata  (rx_packed_tdata),
+  //   .m_axis_tvalid (rx_packed_tvalid),
+  //   .m_axis_tready (rx_byte_tready), // input from outside always ready
+  //   .m_axis_tlast  (rx_packed_tlast)
+  // );
+
 
   // Expose slicer output
   assign rx_byte_tdata  = sl_out_data;
@@ -499,10 +535,10 @@ axis_counter_src #(
   assign dbg_de_out_tlast   = de_out_last;
 
   // TX: preamble inserter
-  assign dbg_pi_tdata       = pi_tdata;
-  assign dbg_pi_tvalid      = pi_tvalid;
-  assign dbg_pi_tready      = pi_tready;
-  assign dbg_pi_tlast       = pi_tlast;
+  // assign dbg_pi_tdata       = pi_tdata;
+  // assign dbg_pi_tvalid      = pi_tvalid;
+  // assign dbg_pi_tready      = pi_tready;
+  // assign dbg_pi_tlast       = pi_tlast;
 
   // RX: depacketizer
   assign dbg_dep_tdata      = dep_tdata;
@@ -511,11 +547,11 @@ axis_counter_src #(
   assign dbg_dep_tlast      = dep_tlast;
 
   // RX: preamble correlator
-  assign dbg_pc_tdata       = pc_tdata;
-  assign dbg_pc_tvalid      = pc_tvalid;
-  assign dbg_pc_tready      = pc_tready;
-  assign dbg_pc_tlast       = pc_tlast;
-  assign dbg_frame_start    = frame_start;
+  // assign dbg_pc_tdata       = pc_tdata;
+  // assign dbg_pc_tvalid      = pc_tvalid;
+  // assign dbg_pc_tready      = pc_tready;
+  // assign dbg_pc_tlast       = pc_tlast;
+  // assign dbg_frame_start    = frame_start;
 
   // RX: diff decoder
   assign dbg_dd_out_tdata   = dd_out_data;

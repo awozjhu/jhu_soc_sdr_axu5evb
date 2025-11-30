@@ -62,21 +62,21 @@ module tb_bb_chain_wrapper_no_fec;
   wire        dbg_de_out_tready;
   wire        dbg_de_out_tlast;
 
-  wire [31:0] dbg_pi_tdata;
-  wire        dbg_pi_tvalid;
-  wire        dbg_pi_tready;
-  wire        dbg_pi_tlast;
+  // wire [31:0] dbg_pi_tdata;
+  // wire        dbg_pi_tvalid;
+  // wire        dbg_pi_tready;
+  // wire        dbg_pi_tlast;
 
   wire [31:0] dbg_dep_tdata;
   wire        dbg_dep_tvalid;
   wire        dbg_dep_tready;
   wire        dbg_dep_tlast;
 
-  wire [31:0] dbg_pc_tdata;
-  wire        dbg_pc_tvalid;
-  wire        dbg_pc_tready;
-  wire        dbg_pc_tlast;
-  wire        dbg_frame_start;
+  // wire [31:0] dbg_pc_tdata;
+  // wire        dbg_pc_tvalid;
+  // wire        dbg_pc_tready;
+  // wire        dbg_pc_tlast;
+  // wire        dbg_frame_start;
 
   wire [31:0] dbg_dd_out_tdata;
   wire        dbg_dd_out_tvalid;
@@ -95,10 +95,8 @@ module tb_bb_chain_wrapper_no_fec;
     .PREAMBLE_LEN (64),
     .USE_QPSK     (1)
   ) dut (
-    .clk_tx           (clk_slow),
-    .clk_rx           (clk_slow),
-    .rst_tx_n         (rst_n),
-    .rst_rx_n         (rst_n),
+    .clk           (clk_slow),
+    .rst_n         (rst_n),
 
     // TX out (to packet_send)
     // .tx_pkt_tdata     (tx_pkt_tdata),
@@ -140,21 +138,21 @@ module tb_bb_chain_wrapper_no_fec;
     .dbg_de_out_tready (dbg_de_out_tready),
     .dbg_de_out_tlast  (dbg_de_out_tlast),
 
-    .dbg_pi_tdata      (dbg_pi_tdata),
-    .dbg_pi_tvalid     (dbg_pi_tvalid),
-    .dbg_pi_tready     (dbg_pi_tready),
-    .dbg_pi_tlast      (dbg_pi_tlast),
+    // .dbg_pi_tdata      (dbg_pi_tdata),
+    // .dbg_pi_tvalid     (dbg_pi_tvalid),
+    // .dbg_pi_tready     (dbg_pi_tready),
+    // .dbg_pi_tlast      (dbg_pi_tlast),
 
     .dbg_dep_tdata     (dbg_dep_tdata),
     .dbg_dep_tvalid    (dbg_dep_tvalid),
     .dbg_dep_tready    (dbg_dep_tready),
     .dbg_dep_tlast     (dbg_dep_tlast),
 
-    .dbg_pc_tdata      (dbg_pc_tdata),
-    .dbg_pc_tvalid     (dbg_pc_tvalid),
-    .dbg_pc_tready     (dbg_pc_tready),
-    .dbg_pc_tlast      (dbg_pc_tlast),
-    .dbg_frame_start   (dbg_frame_start),
+    // .dbg_pc_tdata      (dbg_pc_tdata),
+    // .dbg_pc_tvalid     (dbg_pc_tvalid),
+    // .dbg_pc_tready     (dbg_pc_tready),
+    // .dbg_pc_tlast      (dbg_pc_tlast),
+    // .dbg_frame_start   (dbg_frame_start),
 
     .dbg_dd_out_tdata  (dbg_dd_out_tdata),
     .dbg_dd_out_tvalid (dbg_dd_out_tvalid),
@@ -208,17 +206,22 @@ axis_data_fifo_cdc tx_cdc_fifo (
   wire [3:0]  ps_gt_tx_ctrl;
   wire        tx_packet_done;
 
-  packet_send u_packet_send (
+  packet_send_axis_in u_packet_send (
     .rst              (~rst_n),          // active-high reset
-    .tx_clk           (clk),
+    .tx_clk           (clk_fast),
     .tx_packet_req    (1'b1),            // always request packets in TB
     .tx_packet_len    (FRAME_WORDS[15:0]),
     .tx_packet_done   (tx_packet_done),
     .tx_packet_type   (8'h01),
 
     // Drive from wrapper packetizer
-    .tx_packet_data   (m_axis_tdata_tx),
-    .tx_packet_data_rd(m_axis_tready_tx),   // tready back into wrapper
+    // .tx_packet_data   (m_axis_tdata_tx),
+    // .tx_packet_data_rd(m_axis_tready_tx),   // tready back into wrapper
+
+    .s_axis_tdata(m_axis_tdata_tx),
+    .s_axis_tvalid(m_axis_tvalid_tx),
+    .s_axis_tready(m_axis_tready_tx),
+    .s_axis_tlast(m_axis_tlast_tx),
 
     .gt_tx_data       (ps_gt_tx_data),
     .gt_tx_ctrl       (ps_gt_tx_ctrl)
@@ -239,7 +242,7 @@ axis_data_fifo_cdc tx_cdc_fifo (
 
   packet_rec u_packet_rec (
     .rst                 (~rst_n),
-    .rx_clk              (clk),
+    .rx_clk              (clk_fast),
     .rx_data             (ps_gt_tx_data),
     .rx_ctrl             (ps_gt_tx_ctrl),
     .rx_data_align       (rx_data_align),
@@ -286,7 +289,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   assign rx_sym_tdata   = m_axis_tdata_rx;
   assign rx_sym_tvalid  = m_axis_tvalid_rx;
   assign rx_sym_tlast   = m_axis_tlast_rx;
-
+  assign m_axis_tready_rx = rx_sym_tready;
 
   // Always ready to consume slicer output in this TB
   assign rx_byte_tready = 1'b1;
@@ -345,7 +348,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // PRBS (8-bit -> pad to 32)
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && prbs_mon_tvalid && prbs_mon_tready) begin
       $fdisplay(f_prbs, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_prbs, bt_prbs,
@@ -360,7 +363,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Mapper output
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && dbg_map_out_tvalid && dbg_map_out_tready) begin
       $fdisplay(f_map, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_map, bt_map,
@@ -375,7 +378,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Diff encoder output
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && dbg_de_out_tvalid && dbg_de_out_tready) begin
       $fdisplay(f_de, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_de, bt_de,
@@ -390,22 +393,22 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Preamble inserter output
-  always @(posedge clk) begin
-    if (rst_n && dbg_pi_tvalid && dbg_pi_tready) begin
-      $fdisplay(f_pi, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
-                $time, fr_pi, bt_pi,
-                dbg_pi_tvalid, dbg_pi_tready, dbg_pi_tlast,
-                dbg_pi_tdata);
-      bt_pi <= bt_pi + 1;
-      if (dbg_pi_tlast) begin
-        fr_pi <= fr_pi + 1;
-        bt_pi <= 0;
-      end
-    end
-  end
+  // always @(posedge clk_slow) begin
+  //   if (rst_n && dbg_pi_tvalid && dbg_pi_tready) begin
+  //     $fdisplay(f_pi, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
+  //               $time, fr_pi, bt_pi,
+  //               dbg_pi_tvalid, dbg_pi_tready, dbg_pi_tlast,
+  //               dbg_pi_tdata);
+  //     bt_pi <= bt_pi + 1;
+  //     if (dbg_pi_tlast) begin
+  //       fr_pi <= fr_pi + 1;
+  //       bt_pi <= 0;
+  //     end
+  //   end
+  // end
 
   // TX packetizer output
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && tx_pkt_tvalid && tx_pkt_tready) begin
       $fdisplay(f_txpkt, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_tx, bt_tx,
@@ -420,7 +423,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Depacketizer output
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && dbg_dep_tvalid && dbg_dep_tready) begin
       $fdisplay(f_dep, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_dep, bt_dep,
@@ -435,22 +438,22 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Preamble correlator output
-  always @(posedge clk) begin
-    if (rst_n && dbg_pc_tvalid && dbg_pc_tready) begin
-      $fdisplay(f_pc, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
-                $time, fr_pc, bt_pc,
-                dbg_pc_tvalid, dbg_pc_tready, dbg_pc_tlast,
-                dbg_pc_tdata);
-      bt_pc <= bt_pc + 1;
-      if (dbg_pc_tlast) begin
-        fr_pc <= fr_pc + 1;
-        bt_pc <= 0;
-      end
-    end
-  end
+  // always @(posedge clk_slow) begin
+  //   if (rst_n && dbg_pc_tvalid && dbg_pc_tready) begin
+  //     $fdisplay(f_pc, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
+  //               $time, fr_pc, bt_pc,
+  //               dbg_pc_tvalid, dbg_pc_tready, dbg_pc_tlast,
+  //               dbg_pc_tdata);
+  //     bt_pc <= bt_pc + 1;
+  //     if (dbg_pc_tlast) begin
+  //       fr_pc <= fr_pc + 1;
+  //       bt_pc <= 0;
+  //     end
+  //   end
+  // end
 
   // Diff decoder output
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && dbg_dd_out_tvalid && dbg_dd_out_tready) begin
       $fdisplay(f_dd, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_dd, bt_dd,
@@ -465,7 +468,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Slicer input
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && dbg_sl_in_tvalid && dbg_sl_in_tready) begin
       $fdisplay(f_sl_in, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_slin, bt_slin,
@@ -480,7 +483,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   end
 
   // Slicer output (8-bit -> pad to 32)
-  always @(posedge clk) begin
+  always @(posedge clk_slow) begin
     if (rst_n && rx_byte_tvalid && rx_byte_tready) begin
       $fdisplay(f_sl_out, "%0t,%0d,%0d,%0d,%0d,%0d,%08h",
                 $time, fr_slout, bt_slout,

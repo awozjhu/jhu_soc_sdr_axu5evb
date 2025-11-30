@@ -151,17 +151,17 @@ module tb_mapper_slicer_loopback;
 
   // ===== AXI-Lite CTRL: ENABLE=1, MODE=QPSK(1), AMC_OVERRIDE=1, BYPASS=0 =====
   // CTRL value: 0x0000_0111
-  initial begin
-    @(posedge s_axi_aresetn); repeat(2) @(posedge s_axi_aclk);
+  // initial begin
+  //   @(posedge s_axi_aresetn); repeat(2) @(posedge s_axi_aclk);
 
-    m_awaddr=8'h00; m_awvalid=1; m_wdata=32'h0000_0111; m_wstrb=4'hF; m_wvalid=1;
-    wait (m_awready && m_wready); @(posedge s_axi_aclk);
-    m_awvalid=0; m_wvalid=0; m_bready=1; wait (m_bvalid); @(posedge s_axi_aclk); m_bready=0;
+  //   m_awaddr=8'h00; m_awvalid=1; m_wdata=32'h0000_0111; m_wstrb=4'hF; m_wvalid=1;
+  //   wait (m_awready && m_wready); @(posedge s_axi_aclk);
+  //   m_awvalid=0; m_wvalid=0; m_bready=1; wait (m_bvalid); @(posedge s_axi_aclk); m_bready=0;
 
-    s_awaddr=8'h00; s_awvalid=1; s_wdata=32'h0000_0111; s_wstrb=4'hF; s_wvalid=1;
-    wait (s_awready && s_wready); @(posedge s_axi_aclk);
-    s_awvalid=0; s_wvalid=0; s_bready=1; wait (s_bvalid); @(posedge s_axi_aclk); s_bready=0;
-  end
+  //   s_awaddr=8'h00; s_awvalid=1; s_wdata=32'h0000_0111; s_wstrb=4'hF; s_wvalid=1;
+  //   wait (s_awready && s_wready); @(posedge s_axi_aclk);
+  //   s_awvalid=0; s_wvalid=0; s_bready=1; wait (s_bvalid); @(posedge s_axi_aclk); s_bready=0;
+  // end
 
   // ===== File I/O =====
   // Set this to your absolute path if you want:
