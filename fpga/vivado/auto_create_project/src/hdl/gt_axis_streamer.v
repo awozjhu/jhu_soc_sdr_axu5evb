@@ -9,13 +9,7 @@
 //   - GT out:    gt_tx_data[31:0], gt_tx_ctrl[3:0]
 //                 gt_tx_ctrl[n] = 1 → corresponding byte is K-char (control)
 // -----------------------------------------------------------------------------
-module gt_axis_streamer #
-(
-  parameter [31:0] IDLE_WORD = 32'hBCBC_BCBC, // /K28.5/ x4
-  parameter [3:0]  IDLE_CTRL = 4'b1111,       // all 4 bytes are K
-  parameter [31:0] SOF_WORD  = 32'hBCBC_BCBC, // /K28.5/ x4 as SOF
-  parameter [3:0]  SOF_CTRL  = 4'b1111
-)
+module gt_axis_streamer
 (
   input         clk,           // GT user clock (e.g. tx0_clk)
   input         rst,           // active-high synchronous reset
@@ -30,6 +24,17 @@ module gt_axis_streamer #
   output reg [31:0] gt_tx_data,
   output reg [3:0]  gt_tx_ctrl
 );
+
+// K28.5 control code (standard 8b/10b)
+localparam [7:0] K28_5 = 8'hBC;
+
+// Byte 0 = K, bytes 1..3 = 0x00 data
+localparam [31:0] IDLE_WORD = {8'h00, 8'h00, 8'h00, K28_5};
+localparam [3:0]  IDLE_CTRL = 4'b0001;   // only byte0 is K
+
+localparam [31:0] SOF_WORD  = {8'h00, 8'h00, 8'h00, K28_5};
+localparam [3:0]  SOF_CTRL  = 4'b0001;
+
 
   // ---------------------------------------------------------------------------
   // Simple 1-word buffer for AXIS input (decouples AXIS from link timing)

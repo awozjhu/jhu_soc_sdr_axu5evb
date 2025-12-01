@@ -491,27 +491,6 @@ assign cntr_tx_tready  = map_in_ready;
     .s_axi_rready  (1'b0)
   );
 
-  // // ---------------- AXIS Byte Packer ----------------
-  // logic [7:0] rx_packed_tdata;
-  // logic       rx_packed_tvalid, rx_packed_tready, rx_packed_tlast;
-
-  // axis_byte_packer #(
-  //   .BITS_PER_SYM(2)          // QPSK
-  // ) u_byte_packer (
-  //   .clk           (clk),
-  //   .rst_n         (rst_n),
-
-  //   .s_axis_tdata  (sl_out_data),
-  //   .s_axis_tvalid (sl_out_valid),
-  //   .s_axis_tready (sl_out_ready),
-  //   .s_axis_tlast  (sl_out_last),
-
-  //   .m_axis_tdata  (rx_packed_tdata),
-  //   .m_axis_tvalid (rx_packed_tvalid),
-  //   .m_axis_tready (rx_byte_tready), // input from outside always ready
-  //   .m_axis_tlast  (rx_packed_tlast)
-  // );
-
 
   // Expose slicer output
   assign rx_byte_tdata  = sl_out_data;
