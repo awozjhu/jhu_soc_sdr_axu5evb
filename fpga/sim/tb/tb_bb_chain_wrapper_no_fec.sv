@@ -204,28 +204,43 @@ axis_data_fifo_cdc tx_cdc_fifo (
   // ------------------------------------------------------------
   wire [31:0] ps_gt_tx_data;
   wire [3:0]  ps_gt_tx_ctrl;
-  wire        tx_packet_done;
+  // wire        tx_packet_done;
 
-  packet_send_axis_in u_packet_send (
-    .rst              (~rst_n),          // active-high reset
-    .tx_clk           (clk_fast),
-    .tx_packet_req    (1'b1),            // always request packets in TB
-    .tx_packet_len    (FRAME_WORDS[15:0]),
-    .tx_packet_done   (tx_packet_done),
-    .tx_packet_type   (8'h01),
+  // packet_send_axis_in u_packet_send (
+  //   .rst              (~rst_n),          // active-high reset
+  //   .tx_clk           (clk_fast),
+  //   .tx_packet_req    (1'b1),            // always request packets in TB
+  //   .tx_packet_len    (FRAME_WORDS[15:0]),
+  //   .tx_packet_done   (tx_packet_done),
+  //   .tx_packet_type   (8'h01),
 
-    // Drive from wrapper packetizer
-    // .tx_packet_data   (m_axis_tdata_tx),
-    // .tx_packet_data_rd(m_axis_tready_tx),   // tready back into wrapper
+  //   // Drive from wrapper packetizer
+  //   // .tx_packet_data   (m_axis_tdata_tx),
+  //   // .tx_packet_data_rd(m_axis_tready_tx),   // tready back into wrapper
 
-    .s_axis_tdata(m_axis_tdata_tx),
+  //   .s_axis_tdata(m_axis_tdata_tx),
+  //   .s_axis_tvalid(m_axis_tvalid_tx),
+  //   .s_axis_tready(m_axis_tready_tx),
+  //   .s_axis_tlast(m_axis_tlast_tx),
+
+  //   .gt_tx_data       (ps_gt_tx_data),
+  //   .gt_tx_ctrl       (ps_gt_tx_ctrl)
+  // );
+
+ // gt axis streamer instantiation
+  gt_axis_streamer u_gt_streamer (
+    .clk          (clk_fast),
+    .rst          (~rst_n),  // or an OR of this & your VIO reset
+
+    .s_axis_tdata (m_axis_tdata_tx),
     .s_axis_tvalid(m_axis_tvalid_tx),
     .s_axis_tready(m_axis_tready_tx),
-    .s_axis_tlast(m_axis_tlast_tx),
+    .s_axis_tlast (m_axis_tlast_tx),
 
-    .gt_tx_data       (ps_gt_tx_data),
-    .gt_tx_ctrl       (ps_gt_tx_ctrl)
+    .gt_tx_data   (ps_gt_tx_data),   // to gt_example_top.tx0_data / tx1_data
+    .gt_tx_ctrl   (ps_gt_tx_ctrl)  // to gt_example_top.tx0_kchar / tx1_kchar
   );
+
 
   // ------------------------------------------------------------
   // packet_rec instantiation (RX side)
@@ -240,22 +255,59 @@ axis_data_fifo_cdc tx_cdc_fifo (
   wire        pr_m_axis_tready;
   wire        pr_m_axis_tlast;
 
-  packet_rec u_packet_rec (
-    .rst                 (~rst_n),
-    .rx_clk              (clk_fast),
-    .rx_data             (ps_gt_tx_data),
-    .rx_ctrl             (ps_gt_tx_ctrl),
-    .rx_data_align       (rx_data_align),
-    .rx_ctrl_align       (rx_ctrl_align),
-    .packet_cnt_o        (packet_cnt_o),
-    .error_packet_cnt_o  (error_packet_cnt_o),
+// -----------------------------
+// RX SHIM
+// -----------------------------
+wire [31:0] shim_tdata;
+wire        shim_tvalid;
+wire        shim_tlast;
 
-    .m_axis_tdata        (pr_m_axis_tdata),
-    .m_axis_tvalid       (pr_m_axis_tvalid),
-    .m_axis_tready       (pr_m_axis_tready),
-    .m_axis_tlast        (pr_m_axis_tlast)
-  );
+rx_axis_shim u_rx_axis_shim (
+    .rst        (~rst_n),
+    .rx_clk     (clk_fast),
 
+    .rx_data    (ps_gt_tx_data),
+    .rx_ctrl    (ps_gt_tx_ctrl),
+
+    .m_axis_tdata (shim_tdata),
+    .m_axis_tvalid(shim_tvalid),
+    .m_axis_tready(1'b1),
+    .m_axis_tlast (shim_tlast)
+);
+
+
+wire rx_overflow;
+wire [31:0] fifo_dout;
+wire fifo_rd_en;
+wire fifo_empty;
+
+
+// -----------------------------
+// RX PAYLOAD FIFO (BRAM)
+// -----------------------------
+rx_payload_fifo #(
+    .DATA_WIDTH(32),
+    .DEPTH(2048)
+) u_rx_fifo (
+    .clk           (clk_fast),
+    .rst           (~rst_n),
+
+    .din           (shim_tdata),
+    .wr_en         (shim_tvalid),   // <—— CORRECT
+    .full          (),
+    .overflow_flag (rx_overflow),
+
+    .dout          (fifo_dout),
+    .rd_en         (fifo_rd_en),
+    .empty         (fifo_empty)
+);
+
+// -----------------------------
+// FIFO → RX CDC FIFO
+// -----------------------------
+assign fifo_rd_en     = (!fifo_empty) && pr_m_axis_tready;
+assign pr_m_axis_tvalid = !fifo_empty;
+assign pr_m_axis_tdata  = fifo_dout;
 
 
   wire [31:0] m_axis_tdata_rx;

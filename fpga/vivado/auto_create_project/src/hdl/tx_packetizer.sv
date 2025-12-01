@@ -19,11 +19,13 @@ module tx_packetizer #(
 );
 
   // -------- Header constants (12 bytes = 3 words) --------
-  localparam logic [15:0] SYNC_WORD  = 16'hA5A5;
+  // localparam logic [15:0] SYNC_WORD  = 16'hA5A5;
+  localparam logic [15:0] STAT_WORD  = 16'hA5A5;
   localparam logic [7:0]  HEADER_LEN = 8'd8;     // bytes after SYNC
   localparam logic [3:0]  MODE_VAL   = 4'h1;
   localparam logic [3:0]  FLAGS_VAL  = 4'h0;
-  localparam logic [31:0] RESERVED   = 32'h0000_0000;
+  // localparam logic [31:0] RESERVED   = 32'hdead_beef;
+  localparam logic [31:0] SYNC_WORD   = 32'hdead_beef;
 
   // -------- State --------
   typedef enum logic [1:0] {IDLE, COLLECT, SEND_HEADER, SEND_PAYLOAD} state_t;
@@ -149,9 +151,14 @@ module tx_packetizer #(
         if (!m_axis_tvalid || m_axis_tready) begin
           next_tvalid = 1'b1;
           unique case (hdr_idx)
-            2'd0: next_tdata = {SYNC_WORD, HEADER_LEN, {MODE_VAL, FLAGS_VAL}};
+            // 2'd0: next_tdata = {SYNC_WORD, HEADER_LEN, {MODE_VAL, FLAGS_VAL}};
+            // 2'd1: next_tdata = {seq_num,   payload_length};
+            // 2'd2: next_tdata = RESERVED;
+
+            2'd0: next_tdata = SYNC_WORD;
             2'd1: next_tdata = {seq_num,   payload_length};
-            2'd2: next_tdata = RESERVED;
+            2'd2: next_tdata = {STAT_WORD, HEADER_LEN, {MODE_VAL, FLAGS_VAL}};
+
           endcase
           // tlast is ONLY for last payload beat, never for header
           next_tlast = 1'b0;
