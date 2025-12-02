@@ -223,34 +223,34 @@ assign cntr_tx_tready  = map_in_ready;
 //---------------------------------------------------------------------
 // Noise Injector Instance (AXIS-safe)
 //---------------------------------------------------------------------
-// logic [31:0] noisy_tdata;
-// logic        noisy_tvalid;
-// logic        noisy_tready;
-// logic        noisy_tlast;
+logic [31:0] noisy_tdata;
+logic        noisy_tvalid;
+logic        noisy_tready;
+logic        noisy_tlast;
 
-// // Enable during simulation; disable in hardware if desired
-// logic noise_enable = 1'b1;
+// Enable during simulation; disable in hardware if desired
+logic noise_enable = 1'b1;
 
-// axis_iq_noise_injector #(
-//   .WIDTH(16),        // signed 16-bit I and Q
-//   .NOISE_SHIFT(6)    // adjust noise amplitude
-// ) u_noise_injector (
-//   .clk           (clk),
-//   .rst_n         (rst_n),
-//   .enable        (noise_enable),
+axis_iq_noise_injector #(
+  .WIDTH(16),        // signed 16-bit I and Q
+  .NOISE_SHIFT(6)    // adjust noise amplitude
+) u_noise_injector (
+  .clk           (clk),
+  .rst_n         (rst_n),
+  .enable        (noise_enable),
 
-//   // AXIS IN  (from mapper)
-//   .s_axis_tdata  (map_tdata),
-//   .s_axis_tvalid (map_tvalid),
-//   .s_axis_tready (map_tready),
-//   .s_axis_tlast  (map_tlast),
+  // AXIS IN  (from mapper)
+  .s_axis_tdata  (map_out_data),
+  .s_axis_tvalid (map_out_valid),
+  .s_axis_tready (map_out_ready),
+  .s_axis_tlast  (map_out_last),
 
-//   // AXIS OUT (to downstream stage)
-//   .m_axis_tdata  (noisy_tdata),
-//   .m_axis_tvalid (noisy_tvalid),
-//   .m_axis_tready (noisy_tready),
-//   .m_axis_tlast  (noisy_tlast)
-// );
+  // AXIS OUT (to downstream stage)
+  .m_axis_tdata  (noisy_tdata),
+  .m_axis_tvalid (noisy_tvalid),
+  .m_axis_tready (noisy_tready), // output backpressure
+  .m_axis_tlast  (noisy_tlast)
+);
 
 
   // ---------------- Diff Encoder ----------------
@@ -258,10 +258,17 @@ assign cntr_tx_tready  = map_in_ready;
   logic [31:0] de_in_data,  de_out_data;
   logic        de_out_valid, de_out_ready, de_out_last;
 
-  assign de_in_valid   = map_out_valid;
-  assign de_in_data    = map_out_data;
-  assign de_in_last    = map_out_last;
-  assign map_out_ready = de_in_ready;
+  assign de_in_data    = noisy_tdata;
+  assign de_in_valid   = noisy_tvalid;
+  assign noisy_tready  = de_in_ready;
+  assign de_in_last    = noisy_tlast;
+
+
+
+  // assign de_in_valid   = map_out_valid;
+  // assign de_in_data    = map_out_data;
+  // assign de_in_last    = map_out_last;
+  // assign map_out_ready = de_in_ready;
 
   // dummy AXI-Lite outputs
   logic        de_awready, de_wready, de_bvalid, de_arready, de_rvalid;
