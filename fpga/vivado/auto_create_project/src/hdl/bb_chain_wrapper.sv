@@ -220,6 +220,39 @@ assign cntr_tx_tready  = map_in_ready;
     .s_axi_rready     (1'b0)
   );
 
+//---------------------------------------------------------------------
+// Noise Injector Instance (AXIS-safe)
+//---------------------------------------------------------------------
+// logic [31:0] noisy_tdata;
+// logic        noisy_tvalid;
+// logic        noisy_tready;
+// logic        noisy_tlast;
+
+// // Enable during simulation; disable in hardware if desired
+// logic noise_enable = 1'b1;
+
+// axis_iq_noise_injector #(
+//   .WIDTH(16),        // signed 16-bit I and Q
+//   .NOISE_SHIFT(6)    // adjust noise amplitude
+// ) u_noise_injector (
+//   .clk           (clk),
+//   .rst_n         (rst_n),
+//   .enable        (noise_enable),
+
+//   // AXIS IN  (from mapper)
+//   .s_axis_tdata  (map_tdata),
+//   .s_axis_tvalid (map_tvalid),
+//   .s_axis_tready (map_tready),
+//   .s_axis_tlast  (map_tlast),
+
+//   // AXIS OUT (to downstream stage)
+//   .m_axis_tdata  (noisy_tdata),
+//   .m_axis_tvalid (noisy_tvalid),
+//   .m_axis_tready (noisy_tready),
+//   .m_axis_tlast  (noisy_tlast)
+// );
+
+
   // ---------------- Diff Encoder ----------------
   logic        de_in_valid, de_in_ready, de_in_last;
   logic [31:0] de_in_data,  de_out_data;

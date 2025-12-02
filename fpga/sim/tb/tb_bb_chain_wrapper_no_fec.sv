@@ -166,6 +166,27 @@ module tb_bb_chain_wrapper_no_fec;
   );
 
 
+// ------------------------------------------------------------
+  // PRBS checker instantiation
+  // ------------------------------------------------------------
+
+  wire [31:0] byte_errs;
+  wire [31:0] bit_errs;
+
+axis_prbs_mon prbs_chk (
+  .clk              (clk_slow),
+  .rst_n            (rst_n),
+  .enable           (1'b1),
+
+  .s_axis_tdata     (rx_byte_tdata),
+  .s_axis_tvalid    (rx_byte_tvalid),
+  .s_axis_tready    (rx_byte_tready),            // leave open if you want always-ready
+  .s_axis_tlast     (rx_byte_tlast),
+
+  .expected_byte    (),
+  .byte_error_count (byte_errs),
+  .bit_error_count  (bit_errs)
+);
 
 
 // ------------------------------------------------------------
@@ -255,59 +276,72 @@ axis_data_fifo_cdc tx_cdc_fifo (
   wire        pr_m_axis_tready;
   wire        pr_m_axis_tlast;
 
+
+// GT DATA WORD ALIGNMENT
+word_align u_word_align_rx0 (
+    .rst          (~rst_n),
+    .rx_clk       (clk_fast),
+    .gt_rx_data   (ps_gt_tx_data),
+    .gt_rx_ctrl   (ps_gt_tx_ctrl),
+    .rx_data_align(rx0_data_align),
+    .rx_ctrl_align(rx0_ctrl_align)
+);
+
+
 // -----------------------------
 // RX SHIM
 // -----------------------------
 wire [31:0] shim_tdata;
 wire        shim_tvalid;
 wire        shim_tlast;
+wire        shim_tready;
 
 rx_axis_shim u_rx_axis_shim (
     .rst        (~rst_n),
     .rx_clk     (clk_fast),
 
-    .rx_data    (ps_gt_tx_data),
-    .rx_ctrl    (ps_gt_tx_ctrl),
+    .rx_data    (rx0_data_align),
+    .rx_ctrl    (rx0_ctrl_align),
 
     .m_axis_tdata (shim_tdata),
     .m_axis_tvalid(shim_tvalid),
-    .m_axis_tready(1'b1),
+    .m_axis_tready(shim_tready),
     .m_axis_tlast (shim_tlast)
 );
 
 
-wire rx_overflow;
-wire [31:0] fifo_dout;
-wire fifo_rd_en;
-wire fifo_empty;
+// wire rx_overflow;
+// wire [31:0] fifo_dout;
+// wire fifo_rd_en;
+// wire fifo_empty;
 
 
 // -----------------------------
 // RX PAYLOAD FIFO (BRAM)
 // -----------------------------
-rx_payload_fifo #(
-    .DATA_WIDTH(32),
-    .DEPTH(2048)
-) u_rx_fifo (
-    .clk           (clk_fast),
-    .rst           (~rst_n),
+// rx_payload_fifo #(
+//     .DATA_WIDTH(32),
+//     .DEPTH(2048)
+// ) u_rx_fifo (
+//     .clk           (clk_fast),
+//     .rst           (~rst_n),
 
-    .din           (shim_tdata),
-    .wr_en         (shim_tvalid),   // <—— CORRECT
-    .full          (),
-    .overflow_flag (rx_overflow),
+//     .din           (shim_tdata),
+//     .wr_en         (shim_tvalid),   // <—— CORRECT
+//     .full          (),
+//     .overflow_flag (rx_overflow),
 
-    .dout          (fifo_dout),
-    .rd_en         (fifo_rd_en),
-    .empty         (fifo_empty)
-);
+//     .dout          (fifo_dout),
+//     .rd_en         (fifo_rd_en),
+//     .empty         (fifo_empty)
+// );
 
-// -----------------------------
-// FIFO → RX CDC FIFO
-// -----------------------------
-assign fifo_rd_en     = (!fifo_empty) && pr_m_axis_tready;
-assign pr_m_axis_tvalid = !fifo_empty;
-assign pr_m_axis_tdata  = fifo_dout;
+// // -----------------------------
+// // FIFO → RX CDC FIFO
+// // -----------------------------
+// assign fifo_rd_en     = (!fifo_empty) && pr_m_axis_tready;
+// assign pr_m_axis_tvalid = !fifo_empty;
+// assign pr_m_axis_tdata  = fifo_dout;
 
 
   wire [31:0] m_axis_tdata_rx;
@@ -318,10 +352,11 @@ assign pr_m_axis_tdata  = fifo_dout;
 axis_data_fifo_cdc rx_cdc_fifo (
   .s_axis_aresetn(rst_n),  // input wire s_axis_aresetn
   .s_axis_aclk(clk_fast),        // input wire s_axis_aclk
-  .s_axis_tvalid(pr_m_axis_tvalid),    // input wire s_axis_tvalid
-  .s_axis_tready(pr_m_axis_tready ),    // output wire s_axis_tready
-  .s_axis_tdata(pr_m_axis_tdata),      // input wire [31 : 0] s_axis_tdata
-  .s_axis_tlast(pr_m_axis_tlast),      // input wire s_axis_tlast
+  .s_axis_tvalid(shim_tvalid),    // input wire s_axis_tvalid
+  .s_axis_tready(shim_tready ),    // output wire s_axis_tready
+  .s_axis_tdata(shim_tdata),      // input wire [31 : 0] s_axis_tdata
+  .s_axis_tlast(1'b0),      // input wire s_axis_tlast
+  // .s_axis_tlast(pr_m_axis_tlast),      // input wire s_axis_tlast
 
   .m_axis_aclk(clk_slow),        // input wire m_axis_aclk
   .m_axis_tvalid(m_axis_tvalid_rx),    // output wire m_axis_tvalid
@@ -344,7 +379,7 @@ axis_data_fifo_cdc rx_cdc_fifo (
   assign m_axis_tready_rx = rx_sym_tready;
 
   // Always ready to consume slicer output in this TB
-  assign rx_byte_tready = 1'b1;
+  // assign rx_byte_tready = 1'b1;
 
   // ------------------------------------------------------------
   // CSV logging
