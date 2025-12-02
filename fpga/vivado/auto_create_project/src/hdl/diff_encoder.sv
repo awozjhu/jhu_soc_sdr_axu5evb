@@ -1,15 +1,6 @@
 // -----------------------------------------------------------------------------
 // diff_encoder.sv (self-contained)
 // Differential encoder for DBPSK/DQPSK.
-// - AXIS In : phase-increment phasors {I,Q} in Q1.15 (e.g., 0°, ±90°, 180°)
-// - AXIS Out: previous_symbol × increment (complex multiply), Q1.15
-// - Reset state: prev = (32767, 0). TLAST propagated.
-// - AXI-Lite: CTRL [0]=ENABLE, [2]=SW_RESET (prev←(1,0)), [6:4]=MODE (0=DBPSK,1=DQPSK)
-//              STATUS [0]=RUNNING
-// Notes:
-// * No local declarations inside procedural blocks. No SV functions.
-// * Fast-path for 0/±90/180° increments to avoid amplitude creep.
-// * Generic fixed-point multiply (round + sat) used if inputs are non-axial.
 // -----------------------------------------------------------------------------
 `timescale 1ns/1ps
 
@@ -97,12 +88,11 @@ module diff_encoder #(
       s_axi_rdata     <= 32'h0;
       araddr_hold     <= 8'h00;
 
-      // ctrl_enable     <= 1'b0;
       ctrl_enable     <= 1'b1; // hard code enable no axi control for now
       ctrl_sw_reset   <= 1'b0;
       ctrl_mode       <= 3'd1;   // default DQPSK
 
-      // st_running      <= 1'b0;
+      st_running      <= 1'b0;
     end else begin
       if (s_axi_awvalid) awaddr_hold <= s_axi_awaddr;
       have_write <= s_axi_awvalid & s_axi_wvalid & ~s_axi_bvalid;
@@ -175,7 +165,6 @@ module diff_encoder #(
   end
 
   // Generic complex multiply (prev × inc), fixed-point round & saturate
-  // Intermediates (declared at module scope)
   i32_t p_re_re;
   i32_t p_im_im;
   i32_t p_re_im;
@@ -207,13 +196,13 @@ module diff_encoder #(
     out_im_17 = acc_im_rnd >>> 15;
 
     // Saturate to 16-bit signed
-    if (out_re_17 > 17'sd32767) calc_out_I_generic = 16'sd32767;
+    if (out_re_17 > 17'sd32767)      calc_out_I_generic = 16'sd32767;
     else if (out_re_17 < -17'sd32768) calc_out_I_generic = -16'sd32768;
-    else calc_out_I_generic = out_re_17[15:0];
+    else                              calc_out_I_generic = out_re_17[15:0];
 
-    if (out_im_17 > 17'sd32767) calc_out_Q_generic = 16'sd32767;
+    if (out_im_17 > 17'sd32767)      calc_out_Q_generic = 16'sd32767;
     else if (out_im_17 < -17'sd32768) calc_out_Q_generic = -16'sd32768;
-    else calc_out_Q_generic = out_im_17[15:0];
+    else                              calc_out_Q_generic = out_im_17[15:0];
   end
 
   // Fast-path outputs (no multipliers; exact rotations)
@@ -247,19 +236,20 @@ module diff_encoder #(
     end
   end
 
-  // Output hold regs
+  // Output hold regs (stage 0)
   iq16_t hold_I;
   iq16_t hold_Q;
   logic  hold_last;
   logic  hold_valid;
 
-  // NEW: registered AXIS master outputs (pipeline stage)
+  // Registered AXIS master outputs (pipeline stage / stage 1)
   logic [31:0] enc_out_data;
   logic        enc_out_valid;
   logic        enc_out_last;
+  logic out_fire;
 
-  // Ready/valid (unchanged for input side)
-  assign in_ready  = ctrl_enable & (~hold_valid);
+  // Ready/valid for input: only accept when hold is empty
+  assign in_ready = ctrl_enable & (~hold_valid);
 
   // Drive ports from registered outputs
   assign out_valid = enc_out_valid;
@@ -269,15 +259,15 @@ module diff_encoder #(
   // Datapath / handshakes
   always_ff @(posedge clk_bb or negedge rst_n) begin
     if (!rst_n) begin
-      prev_I      <= ONE_Q15;  // (1,0)
-      prev_Q      <= 16'sd0;
+      prev_I        <= ONE_Q15;  // (1,0)
+      prev_Q        <= 16'sd0;
 
-      hold_I      <= '0;
-      hold_Q      <= '0;
-      hold_last   <= 1'b0;
-      hold_valid  <= 1'b0;
+      hold_I        <= '0;
+      hold_Q        <= '0;
+      hold_last     <= 1'b0;
+      hold_valid    <= 1'b0;
 
-      st_running  <= 1'b0;
+      st_running    <= 1'b0;
 
       enc_out_valid <= 1'b0;
       enc_out_data  <= 32'h0;
@@ -285,12 +275,15 @@ module diff_encoder #(
     end else begin
       // Local soft reset
       if (ctrl_sw_reset) begin
-        prev_I     <= ONE_Q15;
-        prev_Q     <= 16'sd0;
-        hold_valid <= 1'b0;
+        prev_I        <= ONE_Q15;
+        prev_Q        <= 16'sd0;
+        hold_valid    <= 1'b0;
+        enc_out_valid <= 1'b0;
       end
 
-      // Accept a new phasor increment (one symbol), fill hold_*
+      // ----------------------------
+      // Stage 0: accept new symbol
+      // ----------------------------
       if (in_valid && in_ready) begin
         if (use_fast) begin
           hold_I <= calc_out_I_fast;
@@ -303,24 +296,32 @@ module diff_encoder #(
         hold_valid <= 1'b1;
       end
 
-      // Downstream handshake: commit output and advance state
-      // NOTE: prev_* update still uses hold_* as before
-      if (hold_valid && out_ready) begin
-        hold_valid <= 1'b0;
-        prev_I     <= hold_I;
-        prev_Q     <= hold_Q;
-        st_running <= 1'b1;
-      end
+      // ----------------------------
+      // Stage 1: pipeline + state
+      // ----------------------------
+      // Convenience: downstream consumed current output?
 
-      // Output pipeline register: drive enc_out_* from hold_*
-      // Registered AXIS pattern: update when output is free or just accepted
-      if (!enc_out_valid || out_ready) begin
-        enc_out_valid <= hold_valid;
-        if (hold_valid) begin
-          enc_out_data <= {hold_I, hold_Q};
-          enc_out_last <= hold_last;
-        end
+      out_fire = enc_out_valid && out_ready;
+
+      // Case 1: we can load a new symbol from hold into pipeline
+      if ((~enc_out_valid || out_fire) && hold_valid) begin
+        enc_out_valid <= 1'b1;
+        enc_out_data  <= {hold_I, hold_Q};
+        enc_out_last  <= hold_last;
+        hold_valid    <= 1'b0;
+
+        // diff state tracks last emitted symbol
+        prev_I        <= hold_I;
+        prev_Q        <= hold_Q;
+        st_running    <= 1'b1;
+
+      end else if (out_fire) begin
+        // Case 2: downstream consumed, but no new hold symbol
+        enc_out_valid <= 1'b0;
+        enc_out_last  <= 1'b0;
+        // prev_* unchanged here
       end
+      // else: no change, we’re stalled or idle
     end
   end
 

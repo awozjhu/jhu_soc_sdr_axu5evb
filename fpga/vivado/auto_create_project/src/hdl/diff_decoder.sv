@@ -315,6 +315,8 @@ module diff_decoder #(
         if (hold_valid) begin
           dec_out_data <= {hold_I, hold_Q};
           dec_out_last <= hold_last;
+        end else begin
+          dec_out_last <= 1'b0;
         end
       end
     end

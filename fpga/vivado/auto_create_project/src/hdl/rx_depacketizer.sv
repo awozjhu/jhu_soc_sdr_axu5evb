@@ -72,6 +72,8 @@ module rx_depacketizer #(
             if (send_valid) begin
                 m_axis_tdata <= send_data;
                 m_axis_tlast <= send_last;
+            end else begin
+                m_axis_tlast <= 1'b0;
             end
             // else: hold previous data/last
         end

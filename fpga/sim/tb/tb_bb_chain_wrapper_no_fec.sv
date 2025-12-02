@@ -283,8 +283,8 @@ word_align u_word_align_rx0 (
     .rx_clk       (clk_fast),
     .gt_rx_data   (ps_gt_tx_data),
     .gt_rx_ctrl   (ps_gt_tx_ctrl),
-    .rx_data_align(rx0_data_align),
-    .rx_ctrl_align(rx0_ctrl_align)
+    .rx_data_align(rx_data_align),
+    .rx_ctrl_align(rx_ctrl_align)
 );
 
 
@@ -300,8 +300,8 @@ rx_axis_shim u_rx_axis_shim (
     .rst        (~rst_n),
     .rx_clk     (clk_fast),
 
-    .rx_data    (rx0_data_align),
-    .rx_ctrl    (rx0_ctrl_align),
+    .rx_data    (rx_data_align),
+    .rx_ctrl    (rx_ctrl_align),
 
     .m_axis_tdata (shim_tdata),
     .m_axis_tvalid(shim_tvalid),
