@@ -10,6 +10,10 @@ module bb_chain_wrapper_no_fec #(
   input  wire        clk,     // tx and rx baseband clock
   input  wire        rst_n,   // active-low synchronous reset for tx and rx datapath
 
+  // control points
+  // runtime-programmable threshold (0–255)
+  input  wire [7:0]            err_thresh,
+
   // ------------------------------------------------------------
   // TX side: output of tx_packetizer (to hook to packet_send)
   // ------------------------------------------------------------
@@ -239,6 +243,8 @@ axis_iq_noise_injector #(
   .rst_n         (rst_n),
   .enable        (noise_enable),
 
+  .err_thresh   (err_thresh),
+
   // AXIS IN  (from mapper)
   .s_axis_tdata  (map_out_data),
   .s_axis_tvalid (map_out_valid),
@@ -258,13 +264,13 @@ axis_iq_noise_injector #(
   logic [31:0] de_in_data,  de_out_data;
   logic        de_out_valid, de_out_ready, de_out_last;
 
+  // if noise injector is used, connect mapper directly to diff encoder
   assign de_in_data    = noisy_tdata;
   assign de_in_valid   = noisy_tvalid;
   assign noisy_tready  = de_in_ready;
   assign de_in_last    = noisy_tlast;
 
-
-
+// if noise injector is NOT used, connect mapper directly to diff encoder
   // assign de_in_valid   = map_out_valid;
   // assign de_in_data    = map_out_data;
   // assign de_in_last    = map_out_last;

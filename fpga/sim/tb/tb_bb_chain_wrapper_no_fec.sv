@@ -88,6 +88,13 @@ module tb_bb_chain_wrapper_no_fec;
   wire        dbg_sl_in_tready;
   wire        dbg_sl_in_tlast;
 
+  wire [7:0]            err_thresh;
+  assign err_thresh = 8'd65; 
+
+  always @(posedge clk_slow or neg) begin
+    // err_thresh <= 8'd65; // ~4/256 ≈ 1.5% of symbols corrupted
+  end
+
   // ------------------------------------------------------------
   // Baseband wrapper instantiation
   // ------------------------------------------------------------
@@ -97,6 +104,9 @@ module tb_bb_chain_wrapper_no_fec;
   ) dut (
     .clk           (clk_slow),
     .rst_n         (rst_n),
+
+    // control points
+    .err_thresh    (err_thresh),
 
     // TX out (to packet_send)
     // .tx_pkt_tdata     (tx_pkt_tdata),

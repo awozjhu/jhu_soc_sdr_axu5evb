@@ -16,6 +16,9 @@ module axis_iq_noise_injector #(
   input  logic                  rst_n,
   input  logic                  enable,      // global enable for any noise/errors
 
+  // runtime-programmable threshold (0–255)
+  input  logic [7:0]            err_thresh,
+
   // AXIS in
   input  logic [31:0]           s_axis_tdata,
   input  logic                  s_axis_tvalid,
@@ -79,16 +82,10 @@ module axis_iq_noise_injector #(
   // probability ≈ 1 / 2^ERROR_RATE_LOG2 when enable & fire.
   localparam int ER_BITS = (ERROR_RATE_LOG2 < 1) ? 1 : ERROR_RATE_LOG2;
 
-    // pick an approximate BER: THRESH / 256
-    localparam int THRESH = 65;  // ~4/256 ≈ 1.5% of symbols corrupted
+  // pick an approximate BER: THRESH / 256
+//   localparam int THRESH = 65;  // ~4/256 ≈ 1.5% of symbols corrupted
 
-    wire error_event = enable &&
-                    fire &&
-                    (lfsr < THRESH);
-
-//   wire error_event = enable &&
-//                      fire &&
-//                      (lfsr[ER_BITS-1:0] == {ER_BITS{1'b0}});
+    wire error_event = enable && fire && (lfsr < err_thresh); // or use THRESH for hardcoded method
 
   // Use some LFSR bits to decide what to flip on an error event:
   //   lfsr[7] -> flip I sign
