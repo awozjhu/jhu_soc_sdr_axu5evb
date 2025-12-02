@@ -91,10 +91,6 @@ module tb_bb_chain_wrapper_no_fec;
   wire [7:0]            err_thresh;
   assign err_thresh = 8'd65; 
 
-  always @(posedge clk_slow or neg) begin
-    // err_thresh <= 8'd65; // ~4/256 ≈ 1.5% of symbols corrupted
-  end
-
   // ------------------------------------------------------------
   // Baseband wrapper instantiation
   // ------------------------------------------------------------
