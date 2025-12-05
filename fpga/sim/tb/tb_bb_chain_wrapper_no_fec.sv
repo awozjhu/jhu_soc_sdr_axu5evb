@@ -49,6 +49,11 @@ module tb_bb_chain_wrapper_no_fec;
   wire        rx_byte_tlast;
   wire        rx_byte_tready;
 
+  // viterbi output (from wrapper)
+  wire [7:0]  vit_out_data;
+  wire        vit_out_valid;
+  wire        vit_out_ready;
+
   // ------------------------------------------------------------
   // Debug wires from bb_wrapper
   // ------------------------------------------------------------
@@ -89,12 +94,14 @@ module tb_bb_chain_wrapper_no_fec;
   wire        dbg_sl_in_tlast;
 
   wire [7:0]            err_thresh;
-  assign err_thresh = 8'd65; 
+  // assign err_thresh = 8'd65; 
+  assign err_thresh = 8'd0; 
 
-  // ------------------------------------------------------------
-  // Baseband wrapper instantiation
-  // ------------------------------------------------------------
-  bb_chain_wrapper_no_fec #(
+// ------------------------------------------------------------
+// Baseband wrapper with FEC 
+// ------------------------------------------------------------
+
+  bb_chain_wrapper_fec #(
     .PREAMBLE_LEN (64),
     .USE_QPSK     (1)
   ) dut (
@@ -103,12 +110,7 @@ module tb_bb_chain_wrapper_no_fec;
 
     // control points
     .err_thresh    (err_thresh),
-
-    // TX out (to packet_send)
-    // .tx_pkt_tdata     (tx_pkt_tdata),
-    // .tx_pkt_tvalid    (tx_pkt_tvalid),
-    // .tx_pkt_tready    (tx_pkt_tready),
-    // .tx_pkt_tlast     (tx_pkt_tlast),
+    .sel_fec       (1'b1), // 1'b0 = no FEC, '1' = FEC enabled
 
     .tx_pkt_tdata     (tx_pkt_tdata),
     .tx_pkt_tvalid    (tx_pkt_tvalid),
@@ -132,6 +134,11 @@ module tb_bb_chain_wrapper_no_fec;
     .rx_byte_tvalid   (rx_byte_tvalid),
     .rx_byte_tlast    (rx_byte_tlast),
     .rx_byte_tready   (rx_byte_tready),
+
+      // RX: Viterbi decoder output
+    .vit_out_data     (vit_out_data),
+    .vit_out_valid    (vit_out_valid),
+    .vit_out_ready    (vit_out_ready),
 
     // Debug outputs
     .dbg_map_out_tdata (dbg_map_out_tdata),
@@ -172,14 +179,95 @@ module tb_bb_chain_wrapper_no_fec;
   );
 
 
-// ------------------------------------------------------------
-  // PRBS checker instantiation
   // ------------------------------------------------------------
+  // Baseband wrapper instantiation
+  // ------------------------------------------------------------
+  // bb_chain_wrapper_no_fec #(
+  //   .PREAMBLE_LEN (64),
+  //   .USE_QPSK     (1)
+  // ) dut (
+  //   .clk           (clk_slow),
+  //   .rst_n         (rst_n),
+
+  //   // control points
+  //   .err_thresh    (err_thresh),
+
+  //   // TX out (to packet_send)
+  //   // .tx_pkt_tdata     (tx_pkt_tdata),
+  //   // .tx_pkt_tvalid    (tx_pkt_tvalid),
+  //   // .tx_pkt_tready    (tx_pkt_tready),
+  //   // .tx_pkt_tlast     (tx_pkt_tlast),
+
+  //   .tx_pkt_tdata     (tx_pkt_tdata),
+  //   .tx_pkt_tvalid    (tx_pkt_tvalid),
+  //   .tx_pkt_tready    (tx_pkt_tready),
+  //   .tx_pkt_tlast     (tx_pkt_tlast),
+
+  //   // PRBS monitor
+  //   .prbs_mon_tdata   (prbs_mon_tdata),
+  //   .prbs_mon_tvalid  (prbs_mon_tvalid),
+  //   .prbs_mon_tlast   (prbs_mon_tlast),
+  //   .prbs_mon_tready  (prbs_mon_tready),
+
+  //   // RX symbols in (from packet_rec)
+  //   .rx_sym_tdata     (rx_sym_tdata),
+  //   .rx_sym_tvalid    (rx_sym_tvalid),
+  //   .rx_sym_tready    (rx_sym_tready),
+  //   .rx_sym_tlast     (rx_sym_tlast),
+
+  //   // Slicer output bytes
+  //   .rx_byte_tdata    (rx_byte_tdata),
+  //   .rx_byte_tvalid   (rx_byte_tvalid),
+  //   .rx_byte_tlast    (rx_byte_tlast),
+  //   .rx_byte_tready   (rx_byte_tready),
+
+  //   // Debug outputs
+  //   .dbg_map_out_tdata (dbg_map_out_tdata),
+  //   .dbg_map_out_tvalid(dbg_map_out_tvalid),
+  //   .dbg_map_out_tready(dbg_map_out_tready),
+  //   .dbg_map_out_tlast (dbg_map_out_tlast),
+
+  //   .dbg_de_out_tdata  (dbg_de_out_tdata),
+  //   .dbg_de_out_tvalid (dbg_de_out_tvalid),
+  //   .dbg_de_out_tready (dbg_de_out_tready),
+  //   .dbg_de_out_tlast  (dbg_de_out_tlast),
+
+  //   // .dbg_pi_tdata      (dbg_pi_tdata),
+  //   // .dbg_pi_tvalid     (dbg_pi_tvalid),
+  //   // .dbg_pi_tready     (dbg_pi_tready),
+  //   // .dbg_pi_tlast      (dbg_pi_tlast),
+
+  //   .dbg_dep_tdata     (dbg_dep_tdata),
+  //   .dbg_dep_tvalid    (dbg_dep_tvalid),
+  //   .dbg_dep_tready    (dbg_dep_tready),
+  //   .dbg_dep_tlast     (dbg_dep_tlast),
+
+  //   // .dbg_pc_tdata      (dbg_pc_tdata),
+  //   // .dbg_pc_tvalid     (dbg_pc_tvalid),
+  //   // .dbg_pc_tready     (dbg_pc_tready),
+  //   // .dbg_pc_tlast      (dbg_pc_tlast),
+  //   // .dbg_frame_start   (dbg_frame_start),
+
+  //   .dbg_dd_out_tdata  (dbg_dd_out_tdata),
+  //   .dbg_dd_out_tvalid (dbg_dd_out_tvalid),
+  //   .dbg_dd_out_tready (dbg_dd_out_tready),
+  //   .dbg_dd_out_tlast  (dbg_dd_out_tlast),
+
+  //   .dbg_sl_in_tdata   (dbg_sl_in_tdata),
+  //   .dbg_sl_in_tvalid  (dbg_sl_in_tvalid),
+  //   .dbg_sl_in_tready  (dbg_sl_in_tready),
+  //   .dbg_sl_in_tlast   (dbg_sl_in_tlast)
+  // );
+
+
+// ------------------------------------------------------------
+// PRBS checker instantiation no FEC (slicer output)
+// ------------------------------------------------------------
 
   wire [31:0] byte_errs;
   wire [31:0] bit_errs;
 
-axis_prbs_mon prbs_chk (
+axis_prbs_mon prbs_chk_slicer (
   .clk              (clk_slow),
   .rst_n            (rst_n),
   .enable           (1'b1),
@@ -194,6 +282,55 @@ axis_prbs_mon prbs_chk (
   .bit_error_count  (bit_errs)
 );
 
+
+
+
+
+// bit packet from viterbi output to byte packets for PRBS checker
+  wire [7:0]  vit_bytes_tdata;
+  wire        vit_bytes_tvalid;
+  wire        vit_bytes_tready;
+  wire        vit_bytes_tlast;
+
+axis_bit_packer #(
+  .FRAME_BYTES(256)
+) u_bit_packer (
+  .clk           (clk_slow),
+  .rst_n         (rst_n),
+
+  .s_axis_tdata  (vit_out_data),   // [7:0], use bit 0
+  .s_axis_tvalid (vit_out_valid),
+  .s_axis_tready (vit_out_ready),
+  .s_axis_tlast  (1'b0),           // Viterbi has no TLAST
+
+  .m_axis_tdata  (vit_bytes_tdata),
+  .m_axis_tvalid (vit_bytes_tvalid),
+  .m_axis_tready (1'b1),           // always ready for test
+  .m_axis_tlast  (vit_bytes_tlast)
+);
+
+
+// ------------------------------------------------------------
+// PRBS checker instantiation for FEC (Viterbi output)
+// ------------------------------------------------------------
+
+  wire [31:0] fec_byte_errs;
+  wire [31:0] fec_bit_errs;
+
+axis_prbs_mon prbs_chk_fec (
+  .clk              (clk_slow),
+  .rst_n            (rst_n),
+  .enable           (1'b1),
+
+  .s_axis_tdata     (vit_out_data),
+  .s_axis_tvalid    (vit_out_valid),
+  .s_axis_tready    (vit_bytes_tready),            // leave open if you want always-ready
+  .s_axis_tlast     (1'b0),
+
+  .expected_byte    (),
+  .byte_error_count (fec_byte_errs),
+  .bit_error_count  (fec_bit_errs)
+);
 
 // ------------------------------------------------------------
   // AXIS FIFO CDC for RX side (cross-clock from packet_rec to wrapper)
